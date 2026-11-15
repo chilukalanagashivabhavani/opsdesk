@@ -65,3 +65,12 @@ The reset response reports the ticket count and SLA mix. To count the live API r
 ```powershell
 (Invoke-RestMethod http://localhost:3000/api/tickets | Group-Object sla_status | ForEach-Object { "$($_.Name)=$($_.Count)" }) -join ", "
 ```
+
+## Phase 5 ticket actions
+
+Run `npm run seed` and `npm run dev`, then open `http://localhost:5173/tickets/3`.
+
+1. In **Side conversations**, note the recipient chips and message history.
+2. In **Actions**, choose another agent and click **Transfer**. Confirm the success message, unchanged side conversations, and the `transferred` event.
+3. Use **Resolve ticket**, then return to `/tickets`; the ticket appears at the bottom. Open it again and use **Reopen ticket** to restore it.
+4. Use **New side conversation**, add a preset recipient, enter a message, and submit. Reply from the conversation thread.

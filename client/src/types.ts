@@ -39,9 +39,39 @@ export interface Message {
 export interface TicketEvent {
   id: number;
   ticket_id: number;
-  type: "case_linked" | "routed" | "escalated" | string;
+  type: "case_linked" | "routed" | "escalated" | "status_changed" | "transferred" | "side_conversation_created" | string;
   detail: string;
   created_at: string;
+}
+
+export type RecipientRole = "hotel" | "supplier" | "finance" | "agency" | "internal";
+
+export interface Recipient {
+  name: string;
+  email: string;
+  role: RecipientRole;
+}
+
+export interface SideMessage {
+  id: number;
+  side_conversation_id: number;
+  sender: string;
+  body: string;
+  created_at: string;
+}
+
+export interface SideConversation {
+  id: number;
+  ticket_id: number;
+  subject: string;
+  recipients: Recipient[];
+  messages: SideMessage[];
+  message_count: number;
+}
+
+export interface RecipientPreset {
+  name: string;
+  recipients: Recipient[];
 }
 
 export interface Ticket {

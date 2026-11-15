@@ -6,6 +6,7 @@ import { escalateIfNeeded } from "./escalation";
 import { processTicket } from "./pipeline";
 import { seedDatabase } from "./seed";
 import { slaWindowMinutes, SlaPriority } from "./sla";
+import { createSideConversation, Recipient, recipientRoles, transferTicket, updateTicketStatus } from "./actions";
 
 initializeDatabase();
 const app = express();
@@ -76,6 +77,20 @@ app.get("/api/tickets/:id/events", (req, res) => {
   if (!ticket) return res.status(404).json({ error: "Ticket not found" });
   return res.json(db.prepare("SELECT * FROM ticket_events WHERE ticket_id = ? ORDER BY created_at ASC, id ASC").all(Number(req.params.id)));
 });
+app.get("/api/tickets/:id/side-conversations", (req, res) => {
+  const ticket = db.prepare("SELECT id FROM tickets WHERE id = ?").get(Number(req.params.id));
+  if (!ticket) return res.status(404).json({ error: "Ticket not found" });
+  const conversations = db.prepare("SELECT * FROM side_conversations WHERE ticket_id = ? ORDER BY id").all(Number(req.params.id)) as Array<{ id: number; ticket_id: number; subject: string; recipients_json: string }>;
+  return res.json(conversations.map((conversation) => {
+    const messages = db.prepare("SELECT * FROM side_messages WHERE side_conversation_id = ? ORDER BY created_at ASC, id ASC").all(conversation.id);
+    return { id: conversation.id, ticket_id: conversation.ticket_id, subject: conversation.subject, recipients: JSON.parse(conversation.recipients_json), messages, message_count: messages.length };
+  }));
+});
+app.get("/api/recipient-presets", (_req, res) => res.json([
+  { name: "Hotel front desk", recipients: [{ name: "Anita Rao", email: "frontdesk@tajpalace.example", role: "hotel" }] },
+  { name: "Supplier ops desk", recipients: [{ name: "Mina Al-Farsi", email: "ops@supplierdesk.example", role: "supplier" }] },
+  { name: "Finance team", recipients: [{ name: "Rahul Menon", email: "finance@globelink.example", role: "finance" }, { name: "Priya Shah", email: "priya@opsdesk.example", role: "internal" }] }
+]));
 app.get("/api/tickets/:id/case", (req, res) => {
   const ticket = db.prepare("SELECT case_id, intent FROM tickets WHERE id = ?").get(Number(req.params.id)) as { case_id: string | null; intent: string } | undefined;
   if (!ticket) return res.status(404).json({ error: "Ticket not found" });
@@ -108,6 +123,56 @@ app.get("/api/cases", (_req, res) => {
     ORDER BY contact_count DESC, MAX(t.created_at) DESC
   `).all();
   return res.json(cases);
+});
+
+app.patch("/api/tickets/:id", (req, res) => {
+  const status = req.body?.status;
+  if (!["open", "pending", "resolved"].includes(status)) return res.status(400).json({ error: "Status must be open, pending, or resolved" });
+  try {
+    updateTicketStatus(Number(req.params.id), status);
+    return res.json(getTicket(Number(req.params.id)));
+  } catch (error) {
+    return res.status(404).json({ error: error instanceof Error ? error.message : "Ticket not found" });
+  }
+});
+
+app.post("/api/tickets/:id/transfer", (req, res) => {
+  const agentId = req.body?.agent_id;
+  if (!Number.isInteger(agentId)) return res.status(400).json({ error: "agent_id is required" });
+  try {
+    const result = transferTicket(Number(req.params.id), agentId, typeof req.body?.note === "string" ? req.body.note : undefined);
+    return res.json({ ticket: getTicket(Number(req.params.id)), ...result });
+  } catch (error) {
+    const message = error instanceof Error ? error.message : "Unable to transfer ticket";
+    return res.status(message === "Ticket not found" ? 404 : 400).json({ error: message });
+  }
+});
+
+app.post("/api/tickets/:id/side-conversations", (req, res) => {
+  const { subject, recipients, body } = req.body as { subject?: unknown; recipients?: unknown; body?: unknown };
+  const validRecipients = Array.isArray(recipients) && recipients.every((recipient) => {
+    const item = recipient as Partial<Recipient>;
+    return typeof item.name === "string" && typeof item.email === "string" && typeof item.role === "string" && recipientRoles.has(item.role);
+  });
+  if (typeof subject !== "string" || !subject.trim() || !validRecipients || !Array.isArray(recipients) || recipients.length === 0 || typeof body !== "string" || !body.trim()) {
+    return res.status(400).json({ error: "subject, recipients and body are required; recipient roles must be valid" });
+  }
+  try {
+    const id = createSideConversation(Number(req.params.id), subject, recipients as Recipient[], body);
+    return res.status(201).json({ id });
+  } catch (error) {
+    return res.status(404).json({ error: error instanceof Error ? error.message : "Ticket not found" });
+  }
+});
+
+app.post("/api/side-conversations/:id/messages", (req, res) => {
+  const { sender, body } = req.body as { sender?: unknown; body?: unknown };
+  if (typeof sender !== "string" || !sender.trim() || typeof body !== "string" || !body.trim()) return res.status(400).json({ error: "sender and body are required" });
+  const conversation = db.prepare("SELECT id FROM side_conversations WHERE id = ?").get(Number(req.params.id));
+  if (!conversation) return res.status(404).json({ error: "Side conversation not found" });
+  const result = db.prepare("INSERT INTO side_messages (side_conversation_id, sender, body, created_at) VALUES (?, ?, ?, ?)")
+    .run(Number(req.params.id), sender.trim(), body.trim(), new Date().toISOString());
+  return res.status(201).json(db.prepare("SELECT * FROM side_messages WHERE id = ?").get(Number(result.lastInsertRowid)));
 });
 
 const allowedIntents = new Set(["refund", "cancellation", "amendment", "voucher", "payment", "other"]);

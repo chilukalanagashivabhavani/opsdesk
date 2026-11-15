@@ -63,6 +63,13 @@ export function initializeDatabase(): void {
       subject TEXT NOT NULL,
       recipients_json TEXT NOT NULL
     );
+    CREATE TABLE IF NOT EXISTS side_messages (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      side_conversation_id INTEGER NOT NULL REFERENCES side_conversations(id) ON DELETE CASCADE,
+      sender TEXT NOT NULL,
+      body TEXT NOT NULL,
+      created_at TEXT NOT NULL
+    );
     CREATE TABLE IF NOT EXISTS ticket_events (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       ticket_id INTEGER NOT NULL REFERENCES tickets(id) ON DELETE CASCADE,

@@ -50,9 +50,17 @@ export function StatCard({ label, value, tone = "indigo" }: { label: string; val
 }
 
 export function Timeline({ events }: { events: TicketEvent[] }) {
+  const eventStyle = (type: TicketEvent["type"]) => {
+    if (type === "escalated") return { dot: "bg-rose-400", icon: "!" };
+    if (type === "transferred") return { dot: "bg-amber-400", icon: "→" };
+    if (type === "status_changed") return { dot: "bg-emerald-400", icon: "✓" };
+    if (type === "side_conversation_created") return { dot: "bg-cyan-400", icon: "↗" };
+    if (type === "case_linked") return { dot: "bg-violet-400", icon: "⌘" };
+    return { dot: "bg-indigo-400", icon: "•" };
+  };
   return <div className="space-y-4">{events.length === 0 ? <EmptyState text="No events recorded yet." /> : events.map((event) => (
     <div key={event.id} className="relative border-l border-slate-700 pl-5">
-      <span className="absolute -left-1.5 top-1 h-3 w-3 rounded-full bg-indigo-400 ring-4 ring-slate-950" />
+      <span className={`absolute -left-2 top-0.5 grid h-4 w-4 place-items-center rounded-full text-[10px] font-bold text-slate-950 ring-4 ring-slate-950 ${eventStyle(event.type).dot}`}>{eventStyle(event.type).icon}</span>
       <p className="text-sm font-medium capitalize text-slate-200">{event.type.replace("_", " ")}</p>
       <p className="mt-1 text-sm text-slate-400">{event.detail}</p>
       <time className="mt-1 block text-xs text-slate-500">{new Date(event.created_at).toLocaleString()}</time>

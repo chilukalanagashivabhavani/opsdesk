@@ -31,6 +31,7 @@ export function seedDatabase(seedNow = new Date()): SeedResult {
   initializeDatabase();
   db.exec(`
     DELETE FROM ticket_events;
+    DELETE FROM side_messages;
     DELETE FROM side_conversations;
     DELETE FROM messages;
     DELETE FROM tickets;
@@ -38,7 +39,7 @@ export function seedDatabase(seedNow = new Date()): SeedResult {
     DELETE FROM agents;
     DELETE FROM agencies;
     DELETE FROM sqlite_sequence
-    WHERE name IN ('agencies', 'agents', 'bookings', 'tickets', 'messages', 'side_conversations', 'ticket_events');
+    WHERE name IN ('agencies', 'agents', 'bookings', 'tickets', 'messages', 'side_conversations', 'side_messages', 'ticket_events');
   `);
 
   const agencies = [
@@ -107,6 +108,23 @@ export function seedDatabase(seedNow = new Date()): SeedResult {
     processTicket(ticketId, createdAt, true);
     insertMessage.run(ticketId, "agency", `Hello, please help with our ${ticketSeed.intent} request.`, createdAt);
     insertMessage.run(ticketId, "system", "Ticket received and awaiting assignment.", new Date(new Date(createdAt).getTime() + 60000).toISOString());
+  }
+
+  const sideConversationSeeds = [
+    { ticketId: 3, subject: "Confirm refund with Taj Palace", recipients: [{ name: "Anita Rao", email: "anita.rao@tajpalace.example", role: "hotel" }, { name: "GlobeLink Finance", email: "finance@globelink.example", role: "finance" }], messages: ["Could you confirm the refund amount and expected processing date?", "The hotel has confirmed the cancellation. We are checking the final amount."] },
+    { ticketId: 4, subject: "Refund approval with finance", recipients: [{ name: "Rahul Menon", email: "rahul.menon@globelink.example", role: "finance" }, { name: "Agency desk", email: "desk@globelink.example", role: "agency" }, { name: "Ops internal", email: "ops@opsdesk.example", role: "internal" }], messages: ["Please review the refund approval for this repeat contact."] },
+    { ticketId: 6, subject: "Cancellation confirmation with supplier", recipients: [{ name: "Mina Al-Farsi", email: "mina@supplierops.example", role: "supplier" }, { name: "Mideast Holidays", email: "ops@mideasthol.example", role: "agency" }], messages: ["Please confirm the supplier cancellation reference.", "Supplier reference received; waiting for the penalty breakdown."] },
+    { ticketId: 7, subject: "Hotel cancellation confirmation", recipients: [{ name: "Dubai Marina desk", email: "frontdesk@marinabay.example", role: "hotel" }, { name: "Omar Haddad", email: "omar@opsdesk.example", role: "internal" }], messages: ["Checking the final cancellation status with the property."] },
+    { ticketId: 9, subject: "Amendment availability with supplier", recipients: [{ name: "Linh Tran", email: "linh@supplierops.example", role: "supplier" }, { name: "Sundial Tours", email: "ops@sundial.example", role: "agency" }], messages: ["Can the supplier hold the new dates while we confirm with the agency?"] },
+    { ticketId: 10, subject: "Confirm amended dates with hotel", recipients: [{ name: "Grand Central reservations", email: "reservations@grandcentral.example", role: "hotel" }, { name: "Finance team", email: "finance@eurovoyage.example", role: "finance" }], messages: ["Please confirm availability and any fare difference.", "The hotel is checking inventory for the requested dates.", "Availability is confirmed; finance is validating the difference."] }
+  ];
+  const insertSideConversation = db.prepare("INSERT INTO side_conversations (ticket_id, subject, recipients_json) VALUES (?, ?, ?)");
+  const insertSideMessage = db.prepare("INSERT INTO side_messages (side_conversation_id, sender, body, created_at) VALUES (?, ?, ?, ?)");
+  for (const conversation of sideConversationSeeds) {
+    const assigned = db.prepare("SELECT COALESCE(assigned.name, 'OpsDesk') AS name FROM tickets t LEFT JOIN agents assigned ON assigned.id = t.assigned_agent_id WHERE t.id = ?").get(conversation.ticketId) as { name: string };
+    const created = new Date(seedNowMs + conversation.ticketId * 1000).toISOString();
+    const result = insertSideConversation.run(conversation.ticketId, conversation.subject, JSON.stringify(conversation.recipients));
+    conversation.messages.forEach((body, index) => insertSideMessage.run(Number(result.lastInsertRowid), index === 0 ? assigned.name : "External partner", body, new Date(new Date(created).getTime() + index * 60000).toISOString()));
   }
 
   const result = { agencies: countRows("agencies"), agents: countRows("agents"), bookings: countRows("bookings"), tickets: countRows("tickets") };

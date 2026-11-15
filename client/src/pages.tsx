@@ -1,8 +1,8 @@
 import { FormEvent, useCallback, useEffect, useMemo, useState } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
 import { api } from "./api";
-import { Agent, Agency, Booking, CaseDetail, CaseSummary, Ticket, TicketEvent } from "./types";
-import { EmptyState, ErrorState, LoadingState, PriorityBadge, SlaBadge, StatCard, TicketLink, Timeline } from "./components";
+import { Agent, Agency, Booking, CaseDetail, Recipient, RecipientPreset, SideConversation, Ticket, TicketEvent } from "./types";
+import { EmptyState, ErrorState, LoadingState, PriorityBadge, SlaBadge, StatCard, Timeline } from "./components";
 import { usePolling } from "./hooks";
 
 function PageTitle({ eyebrow, title, detail }: { eyebrow: string; title: string; detail: string }) {
@@ -63,26 +63,107 @@ export function InsightsPage() {
   return <><PageTitle eyebrow="Coming soon" title="Insights" detail="Trends and operational reporting are on the roadmap." /><div className="panel flex min-h-[280px] items-center justify-center"><div className="text-center"><div className="mx-auto grid h-14 w-14 place-items-center rounded-2xl bg-indigo-500/15 text-2xl text-indigo-300">✦</div><h2 className="mt-5 text-lg font-semibold">Your support intelligence hub</h2><p className="mt-2 text-sm text-slate-400">Once the queue is humming, we will turn it into actionable trends.</p></div></div></>;
 }
 
+function SideConversationCard({ conversation, onReply }: { conversation: SideConversation; onReply: (id: number, body: string) => Promise<void> }) {
+  const [body, setBody] = useState("");
+  const [sending, setSending] = useState(false);
+  const submit = async (event: FormEvent) => {
+    event.preventDefault();
+    if (!body.trim()) return;
+    setSending(true);
+    await onReply(conversation.id, body);
+    setBody("");
+    setSending(false);
+  };
+  return <div className="rounded-xl border border-slate-800 bg-slate-950/60 p-4"><div className="flex flex-wrap items-start justify-between gap-3"><div><h3 className="font-medium text-slate-200">{conversation.subject}</h3><div className="mt-2 flex flex-wrap gap-2">{conversation.recipients.map((recipient) => <span key={`${recipient.email}-${recipient.role}`} className="rounded-full bg-slate-800 px-2.5 py-1 text-xs text-slate-300">{recipient.name} · {recipient.role}</span>)}</div></div><span className="text-xs text-slate-500">{conversation.message_count} messages</span></div><div className="mt-4 space-y-2">{conversation.messages.map((message) => <div key={message.id} className="rounded-lg bg-slate-900 px-3 py-2"><div className="flex justify-between text-xs"><span className="text-indigo-300">{message.sender}</span><span className="text-slate-600">{new Date(message.created_at).toLocaleString()}</span></div><p className="mt-1 text-sm text-slate-300">{message.body}</p></div>)}</div><form onSubmit={submit} className="mt-3 flex gap-2"><input value={body} onChange={(event) => setBody(event.target.value)} className="input mt-0" placeholder="Reply to this conversation..." /><button disabled={sending || !body.trim()} className="rounded-lg bg-slate-700 px-3 text-sm text-slate-200 hover:bg-slate-600 disabled:opacity-50">{sending ? "..." : "Reply"}</button></form></div>;
+}
+
+function NewSideConversationForm({ presets, onCreated }: { presets: RecipientPreset[]; onCreated: (subject: string, recipients: Recipient[], body: string) => Promise<void> }) {
+  const [subject, setSubject] = useState("");
+  const [body, setBody] = useState("");
+  const [recipients, setRecipients] = useState<Recipient[]>([]);
+  const [customName, setCustomName] = useState("");
+  const [customEmail, setCustomEmail] = useState("");
+  const [customRole, setCustomRole] = useState<Recipient["role"]>("internal");
+  const [sending, setSending] = useState(false);
+  const addRecipients = (next: Recipient[]) => setRecipients((current) => [...current, ...next.filter((item) => !current.some((existing) => existing.email === item.email))]);
+  const addCustom = () => {
+    if (customName.trim() && customEmail.trim()) {
+      addRecipients([{ name: customName.trim(), email: customEmail.trim(), role: customRole }]);
+      setCustomName("");
+      setCustomEmail("");
+    }
+  };
+  const submit = async (event: FormEvent) => {
+    event.preventDefault();
+    if (!subject.trim() || !body.trim() || recipients.length === 0) return;
+    setSending(true);
+    await onCreated(subject, recipients, body);
+    setSubject("");
+    setBody("");
+    setRecipients([]);
+    setSending(false);
+  };
+  return <form onSubmit={submit} className="rounded-xl border border-dashed border-slate-700 p-4"><h3 className="font-medium text-slate-200">New side conversation</h3><input required value={subject} onChange={(event) => setSubject(event.target.value)} className="input" placeholder="Subject" /><div className="mt-3 flex flex-wrap gap-2">{presets.map((preset) => <button type="button" key={preset.name} onClick={() => addRecipients(preset.recipients)} className="rounded-lg border border-slate-700 px-2.5 py-1.5 text-xs text-slate-300 hover:bg-slate-800">+ {preset.name}</button>)}</div><div className="mt-3 grid gap-2 sm:grid-cols-[1fr_1fr_auto_auto]"><input value={customName} onChange={(event) => setCustomName(event.target.value)} className="input mt-0" placeholder="Custom name" /><input value={customEmail} onChange={(event) => setCustomEmail(event.target.value)} className="input mt-0" placeholder="Email" /><select value={customRole} onChange={(event) => setCustomRole(event.target.value as Recipient["role"])} className="input mt-0">{["hotel", "supplier", "finance", "agency", "internal"].map((role) => <option key={role}>{role}</option>)}</select><button type="button" onClick={addCustom} className="rounded-lg bg-slate-700 px-3 text-sm hover:bg-slate-600">Add</button></div><div className="mt-3 flex flex-wrap gap-2">{recipients.map((recipient) => <span key={recipient.email} className="rounded-full bg-indigo-500/15 px-2.5 py-1 text-xs text-indigo-200">{recipient.name} · {recipient.role}</span>)}</div><textarea required rows={3} value={body} onChange={(event) => setBody(event.target.value)} className="input resize-none" placeholder="First message..." /><button disabled={sending || recipients.length === 0} className="rounded-lg bg-indigo-500 px-3 py-2 text-sm font-semibold hover:bg-indigo-400 disabled:opacity-50">{sending ? "Sending..." : "Start conversation"}</button></form>;
+}
+
 export function TicketDetailPage() {
   const { id } = useParams();
   const ticketId = Number(id);
   const [ticket, setTicket] = useState<Ticket | null>(null);
   const [caseDetail, setCaseDetail] = useState<CaseDetail | null>(null);
   const [events, setEvents] = useState<TicketEvent[]>([]);
+  const [sideConversations, setSideConversations] = useState<SideConversation[]>([]);
+  const [agents, setAgents] = useState<Agent[]>([]);
+  const [presets, setPresets] = useState<RecipientPreset[]>([]);
   const [error, setError] = useState<string | null>(null);
+  const [success, setSuccess] = useState<string | null>(null);
+  const [actionError, setActionError] = useState<string | null>(null);
+  const [transferAgent, setTransferAgent] = useState("");
+  const [transferNote, setTransferNote] = useState("");
+  const [working, setWorking] = useState(false);
+  const loadTicket = useCallback(async () => {
+    const [nextTicket, nextEvents, nextCase, nextConversations, nextAgents, nextPresets] = await Promise.all([api.getTicket(ticketId), api.getTicketEvents(ticketId), api.getTicketCase(ticketId), api.getSideConversations(ticketId), api.getAgents(), api.getRecipientPresets()]);
+    setTicket(nextTicket);
+    setEvents(nextEvents);
+    setCaseDetail(nextCase);
+    setSideConversations(nextConversations);
+    setAgents(nextAgents);
+    setPresets(nextPresets);
+  }, [ticketId]);
   useEffect(() => {
     let active = true;
-    Promise.all([api.getTicket(ticketId), api.getTicketEvents(ticketId), api.getTicketCase(ticketId)])
-      .then(([nextTicket, nextEvents, nextCase]) => { if (active) { setTicket(nextTicket); setEvents(nextEvents); setCaseDetail(nextCase); } })
+    loadTicket()
+      .then(() => { if (!active) return; })
       .catch((reason) => { if (active) setError(reason instanceof Error ? reason.message : "Unable to load ticket"); });
     return () => { active = false; };
-  }, [ticketId]);
+  }, [loadTicket]);
   if (error) return <ErrorState message={error} />;
   if (!ticket || !caseDetail) return <LoadingState />;
   const routedEvent = events.find((event) => event.type === "routed");
-  return <><Link to="/tickets" className="text-sm text-slate-500 hover:text-slate-300">← Back to tickets</Link><div className="mt-5 flex flex-wrap items-start justify-between gap-4"><div><div className="flex items-center gap-3"><PriorityBadge priority={ticket.priority} /><span className="capitalize text-sm text-slate-400">{ticket.status}</span></div><h1 className="mt-3 text-3xl font-semibold">{ticket.subject}</h1><p className="mt-2 text-sm text-slate-500">Ticket #{ticket.id} · created {new Date(ticket.created_at).toLocaleString()}</p></div><div className="rounded-2xl border border-slate-700 bg-slate-900 px-6 py-4 text-center"><p className="text-xs uppercase tracking-widest text-slate-500">SLA countdown</p><div className="mt-2 text-xl font-semibold"><SlaBadge ticket={ticket} /></div></div></div>
+  const perform = async (action: () => Promise<void>, message: string) => { setWorking(true); setActionError(null); setSuccess(null); try { await action(); await loadTicket(); setSuccess(message); } catch (reason) { setActionError(reason instanceof Error ? reason.message : "Action failed"); } finally { setWorking(false); } };
+  const reply = (conversationId: number, body: string) => perform(async () => { await api.addSideMessage(conversationId, ticket.assigned_agent_name ?? "OpsDesk", body); }, "Reply added.");
+  const createConversation = (subject: string, recipients: Recipient[], body: string) => perform(async () => { await api.createSideConversation(ticket.id, subject, recipients, body); }, "Side conversation created.");
+  const transfer = async () => {
+    if (!transferAgent) return;
+    setWorking(true);
+    setActionError(null);
+    setSuccess(null);
+    try {
+      const result = await api.transferTicket(ticket.id, Number(transferAgent), transferNote);
+      setTransferNote("");
+      setTransferAgent("");
+      await loadTicket();
+      setSuccess(`Transferred. ${result.sideConversationCount} side conversations and ${result.recipientCount} recipients kept.`);
+    } catch (reason) {
+      setActionError(reason instanceof Error ? reason.message : "Transfer failed");
+    } finally {
+      setWorking(false);
+    }
+  };
+  return <><Link to="/tickets" className="text-sm text-slate-500 hover:text-slate-300">← Back to tickets</Link><div className="mt-5 flex flex-wrap items-start justify-between gap-4"><div><div className="flex items-center gap-3"><PriorityBadge priority={ticket.priority} /><span className="capitalize text-sm text-slate-400">{ticket.status}</span></div><h1 className="mt-3 text-3xl font-semibold">{ticket.subject}</h1><p className="mt-2 text-sm text-slate-500">Ticket #{ticket.id} · created {new Date(ticket.created_at).toLocaleString()}</p></div><div className="flex flex-wrap justify-end gap-3"><div className="rounded-2xl border border-slate-700 bg-slate-900 px-6 py-4 text-center"><p className="text-xs uppercase tracking-widest text-slate-500">SLA countdown</p><div className="mt-2 text-xl font-semibold"><SlaBadge ticket={ticket} /></div></div><section className="panel min-w-[280px] p-4"><h2 className="text-sm font-semibold">Actions</h2><button disabled={working} onClick={() => void perform(() => api.updateTicket(ticket.id, ticket.status === "resolved" ? "open" : "resolved").then(() => undefined), ticket.status === "resolved" ? "Ticket reopened." : "Ticket resolved.")} className="mt-3 rounded-lg bg-indigo-500 px-3 py-2 text-sm font-semibold hover:bg-indigo-400 disabled:opacity-50">{ticket.status === "resolved" ? "Reopen ticket" : "Resolve ticket"}</button><div className="mt-4 grid grid-cols-[1fr_auto] gap-2"><select value={transferAgent} onChange={(event) => setTransferAgent(event.target.value)} className="input mt-0"><option value="">Transfer to...</option>{agents.filter((agent) => agent.id !== ticket.assigned_agent_id).map((agent) => <option key={agent.id} value={agent.id}>{agent.name} · {agent.role.replace("_", " ")}</option>)}</select><button disabled={working || !transferAgent} onClick={() => void transfer()} className="rounded-lg bg-slate-700 px-3 text-sm hover:bg-slate-600 disabled:opacity-50">Transfer</button></div><input value={transferNote} onChange={(event) => setTransferNote(event.target.value)} className="input" placeholder="Transfer note (optional)" /></section></div></div>
+    {(success || actionError) && <div className={`mt-4 rounded-lg border px-4 py-3 text-sm ${actionError ? "border-rose-500/30 bg-rose-500/10 text-rose-200" : "border-emerald-500/30 bg-emerald-500/10 text-emerald-200"}`}>{actionError ?? success}</div>}
     {caseDetail.banner && <div className="mt-6 rounded-xl border border-indigo-500/30 bg-indigo-500/10 px-5 py-4 text-indigo-200">↗ {caseDetail.banner}</div>}
-    <div className="mt-6 grid gap-6 lg:grid-cols-[1.25fr_0.75fr]"><div className="space-y-6"><section className="panel"><h2 className="mb-4 font-semibold">Booking context</h2><div className="grid gap-4 sm:grid-cols-2">{[["Hotel", ticket.hotel_name], ["Destination", ticket.destination], ["Check-in", ticket.check_in_date], ["LCD", ticket.lcd_date], ["Amount", ticket.amount === null ? "-" : `₹${ticket.amount.toLocaleString()}`], ["Agency", `${ticket.agency_name} · ${ticket.agency_region}`]].map(([label, value]) => <div key={label}><p className="text-xs uppercase tracking-wide text-slate-500">{label}</p><p className="mt-1 text-sm text-slate-200">{value ?? "-"}</p></div>)}</div></section><section className="panel"><h2 className="mb-4 font-semibold">Case timeline <span className="ml-2 text-sm font-normal text-slate-500">{caseDetail.contact_count} contacts</span></h2><div className="space-y-3">{caseDetail.tickets.map((item) => <Link key={item.id} to={`/tickets/${item.id}`} className={`flex items-center gap-3 rounded-lg border px-4 py-3 ${item.id === ticket.id ? "border-indigo-500/50 bg-indigo-500/10" : "border-slate-800 hover:bg-slate-800/50"}`}><span className="font-mono text-xs text-slate-500">#{item.id}</span><span className="min-w-0 flex-1 truncate text-sm text-slate-200">{item.subject}</span><span className="text-xs capitalize text-slate-500">{item.status}</span></Link>)}</div></section><section className="panel"><h2 className="mb-4 font-semibold">Messages</h2><div className="space-y-4">{ticket.messages?.map((message) => <div key={message.id} className="rounded-xl bg-slate-800/60 p-4"><div className="flex justify-between text-xs"><span className="font-semibold capitalize text-indigo-300">{message.sender}</span><time className="text-slate-500">{new Date(message.created_at).toLocaleString()}</time></div><p className="mt-2 text-sm leading-6 text-slate-300">{message.body}</p></div>)}</div></section></div><div className="space-y-6"><section className="panel"><h2 className="font-semibold">Why assigned</h2><p className="mt-3 text-sm leading-6 text-slate-400">{routedEvent?.detail ?? "No routing explanation recorded."}</p><p className="mt-4 text-xs text-slate-500">Assigned agent</p><p className="mt-1 text-sm text-slate-200">{ticket.assigned_agent_name ?? "Unassigned"}</p></section><section className="panel"><h2 className="mb-5 font-semibold">Event history</h2><Timeline events={events} /></section></div></div></>;
+    <div className="mt-6 grid gap-6 lg:grid-cols-[1.25fr_0.75fr]"><div className="space-y-6"><section className="panel"><h2 className="mb-4 font-semibold">Booking context</h2><div className="grid gap-4 sm:grid-cols-2">{[["Hotel", ticket.hotel_name], ["Destination", ticket.destination], ["Check-in", ticket.check_in_date], ["LCD", ticket.lcd_date], ["Amount", ticket.amount === null ? "-" : `₹${ticket.amount.toLocaleString()}`], ["Agency", `${ticket.agency_name} · ${ticket.agency_region}`]].map(([label, value]) => <div key={label}><p className="text-xs uppercase tracking-wide text-slate-500">{label}</p><p className="mt-1 text-sm text-slate-200">{value ?? "-"}</p></div>)}</div></section><section className="panel"><h2 className="mb-4 font-semibold">Case timeline <span className="ml-2 text-sm font-normal text-slate-500">{caseDetail.contact_count} contacts</span></h2><div className="space-y-3">{caseDetail.tickets.map((item) => <Link key={item.id} to={`/tickets/${item.id}`} className={`flex items-center gap-3 rounded-lg border px-4 py-3 ${item.id === ticket.id ? "border-indigo-500/50 bg-indigo-500/10" : "border-slate-800 hover:bg-slate-800/50"}`}><span className="font-mono text-xs text-slate-500">#{item.id}</span><span className="min-w-0 flex-1 truncate text-sm text-slate-200">{item.subject}</span><span className="text-xs capitalize text-slate-500">{item.status}</span></Link>)}</div></section><section className="panel"><h2 className="mb-4 font-semibold">Messages</h2><div className="space-y-4">{ticket.messages?.map((message) => <div key={message.id} className="rounded-xl bg-slate-800/60 p-4"><div className="flex justify-between text-xs"><span className="font-semibold capitalize text-indigo-300">{message.sender}</span><time className="text-slate-500">{new Date(message.created_at).toLocaleString()}</time></div><p className="mt-2 text-sm leading-6 text-slate-300">{message.body}</p></div>)}</div></section></div><div className="space-y-6"><section className="panel"><h2 className="font-semibold">Why assigned</h2><p className="mt-3 text-sm leading-6 text-slate-400">{routedEvent?.detail ?? "No routing explanation recorded."}</p><p className="mt-4 text-xs text-slate-500">Assigned agent</p><p className="mt-1 text-sm text-slate-200">{ticket.assigned_agent_name ?? "Unassigned"}</p></section><section className="panel"><h2 className="mb-5 font-semibold">Event history</h2><Timeline events={events} /></section></div></div><section className="panel mt-6"><div className="mb-4 flex items-center justify-between"><div><h2 className="font-semibold">Side conversations</h2><p className="mt-1 text-sm text-slate-500">Partner threads stay with this ticket through transfers.</p></div><span className="text-sm text-slate-500">{sideConversations.length} conversations</span></div><div className="space-y-4">{sideConversations.length ? sideConversations.map((conversation) => <SideConversationCard key={conversation.id} conversation={conversation} onReply={reply} />) : <EmptyState text="No side conversations yet." />}<NewSideConversationForm presets={presets} onCreated={createConversation} /></div></section></>;
 }
 
 export function NewTicketPage() {
