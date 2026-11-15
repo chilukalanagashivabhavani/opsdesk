@@ -14,8 +14,13 @@ test("prefers same-region agents on shift", () => {
 });
 
 test("handles shifts that cross midnight", () => {
-  const result = routeTicket({ priority: "low" }, { region: "India" }, [baseAgent], new Map(), "2026-01-02T00:30:00.000Z");
+  const result = routeTicket({ priority: "low" }, { region: "India" }, [baseAgent], new Map(), "2026-01-01T20:30:00.000Z");
   assert.match(result.reason, /on shift/);
+});
+
+test("interprets shifts in the agent region timezone", () => {
+  const parisAgent = { ...baseAgent, region: "Europe", shift_start: "09:00", shift_end: "17:00" };
+  assert.equal(routeTicket({ priority: "low" }, { region: "Europe" }, [parisAgent], new Map(), "2026-01-01T08:00:00.000Z").agent_id, 1);
 });
 
 test("falls back to the least-loaded online agent outside shift", () => {

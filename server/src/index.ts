@@ -49,6 +49,11 @@ function getSlaStatusCounts(): { ok: number; at_risk: number; breached: number }
 
 app.get("/api/health", (_req, res) => res.json({ status: "ok" }));
 app.get("/api/agencies", (_req, res) => res.json(db.prepare("SELECT * FROM agencies ORDER BY name").all()));
+app.get("/api/agencies/:id/bookings", (req, res) => {
+  const agency = db.prepare("SELECT id FROM agencies WHERE id = ?").get(Number(req.params.id));
+  if (!agency) return res.status(404).json({ error: "Agency not found" });
+  return res.json(db.prepare("SELECT * FROM bookings WHERE agency_id = ? ORDER BY check_in_date").all(Number(req.params.id)));
+});
 app.get("/api/agents", (_req, res) => res.json(db.prepare("SELECT * FROM agents ORDER BY name").all()));
 app.get("/api/tickets", (_req, res) => {
   const now = new Date();
@@ -93,6 +98,7 @@ app.get("/api/cases", (_req, res) => {
   const cases = db.prepare(`
     SELECT t.case_id, COUNT(*) AS contact_count, a.name AS agency_name,
            t.booking_ref, t.intent,
+           (SELECT latest.id FROM tickets latest WHERE latest.case_id = t.case_id ORDER BY latest.created_at DESC, latest.id DESC LIMIT 1) AS latest_ticket_id,
            (SELECT latest.status FROM tickets latest WHERE latest.case_id = t.case_id ORDER BY latest.created_at DESC, latest.id DESC LIMIT 1) AS latest_ticket_status
     FROM tickets t
     LEFT JOIN agencies a ON a.id = t.agency_id

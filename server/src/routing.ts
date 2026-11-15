@@ -32,9 +32,29 @@ function shiftMinutes(value: string): number {
   return hours * 60 + minutes;
 }
 
+const regionTimeZones: Record<string, string> = {
+  India: "Asia/Kolkata",
+  "Middle East": "Asia/Dubai",
+  Europe: "Europe/Paris",
+  "SE Asia": "Asia/Singapore"
+};
+
+function currentMinutesInRegion(date: Date, region: string): number {
+  const timeZone = regionTimeZones[region] ?? "UTC";
+  const parts = new Intl.DateTimeFormat("en-US", {
+    timeZone,
+    hour: "2-digit",
+    minute: "2-digit",
+    hour12: false
+  }).formatToParts(date);
+  const hour = Number(parts.find((part) => part.type === "hour")?.value ?? 0) % 24;
+  const minute = Number(parts.find((part) => part.type === "minute")?.value ?? 0);
+  return hour * 60 + minute;
+}
+
 export function isAgentOnShift(agent: RoutableAgent, now: string | Date): boolean {
   const date = now instanceof Date ? now : new Date(now);
-  const current = date.getUTCHours() * 60 + date.getUTCMinutes();
+  const current = currentMinutesInRegion(date, agent.region);
   const start = shiftMinutes(agent.shift_start);
   const end = shiftMinutes(agent.shift_end);
   if (start === end) return true;
