@@ -5,7 +5,7 @@ import { routeTicket } from "./routing";
 import { computeSla } from "./sla";
 
 export function processTicket(ticketId: number, now: string | Date, linkCase = false): void {
-  if (linkCase) linkTicketToCase(ticketId);
+  if (linkCase) linkTicketToCase(ticketId, now);
   const ticket = db.prepare(`
     SELECT t.*, b.check_in_date, b.lcd_date, a.region AS agency_region
     FROM tickets t

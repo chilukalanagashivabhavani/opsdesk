@@ -4,6 +4,7 @@ import { db, initializeDatabase } from "./db";
 import { buildCaseBanner, daysBetween } from "./cases";
 import { escalateIfNeeded } from "./escalation";
 import { processTicket } from "./pipeline";
+import { seedDatabase } from "./seed";
 import { slaWindowMinutes, SlaPriority } from "./sla";
 
 initializeDatabase();
@@ -34,6 +35,16 @@ function decorateTicket(row: Record<string, unknown>, now = new Date()): Record<
 function getTicket(ticketId: number, now = new Date()): Record<string, unknown> | undefined {
   const row = db.prepare(`${ticketSelect} WHERE t.id = ?`).get(ticketId) as Record<string, unknown> | undefined;
   return row ? decorateTicket(row, now) : undefined;
+}
+
+function getSlaStatusCounts(): { ok: number; at_risk: number; breached: number } {
+  const counts = { ok: 0, at_risk: 0, breached: 0 };
+  const now = new Date();
+  for (const row of db.prepare(ticketSelect).all()) {
+    const status = decorateTicket(row as Record<string, unknown>, now).sla_status as keyof typeof counts;
+    if (status in counts) counts[status]++;
+  }
+  return counts;
 }
 
 app.get("/api/health", (_req, res) => res.json({ status: "ok" }));
@@ -126,6 +137,10 @@ app.post("/api/demo/critical", (_req, res) => {
   const ticketId = Number(result.lastInsertRowid);
   processTicket(ticketId, createdAt, true);
   return res.status(201).json({ ticket: getTicket(ticketId), events: db.prepare("SELECT * FROM ticket_events WHERE ticket_id = ? ORDER BY created_at ASC, id ASC").all(ticketId) });
+});
+app.post("/api/demo/reset", (_req, res) => {
+  const result = seedDatabase();
+  return res.json({ ok: true, tickets: result.tickets, by_sla_status: getSlaStatusCounts() });
 });
 
 const escalationJob = setInterval(() => {

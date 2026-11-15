@@ -53,3 +53,15 @@ Invoke-RestMethod -Method Post -Uri http://localhost:3000/api/demo/critical
 ```
 
 The response includes the created ticket, assigned agent, SLA fields, and event history.
+
+Reset the demo data in-process:
+
+```powershell
+Invoke-RestMethod -Method Post -Uri http://localhost:3000/api/demo/reset
+```
+
+The reset response reports the ticket count and SLA mix. To count the live API response by SLA status:
+
+```powershell
+(Invoke-RestMethod http://localhost:3000/api/tickets | Group-Object sla_status | ForEach-Object { "$($_.Name)=$($_.Count)" }) -join ", "
+```

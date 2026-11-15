@@ -1,85 +1,121 @@
+import path from "node:path";
 import { databasePath, db, initializeDatabase } from "./db";
 import { processTicket } from "./pipeline";
+import { computeSla } from "./sla";
 
-initializeDatabase();
-db.exec(`
-  DELETE FROM ticket_events;
-  DELETE FROM side_conversations;
-  DELETE FROM messages;
-  DELETE FROM tickets;
-  DELETE FROM bookings;
-  DELETE FROM agents;
-  DELETE FROM agencies;
-`);
-db.exec(`
-  DELETE FROM sqlite_sequence
-  WHERE name IN ('agencies', 'agents', 'bookings', 'tickets', 'messages', 'side_conversations', 'ticket_events');
-`);
+export interface SeedResult {
+  agencies: number;
+  agents: number;
+  bookings: number;
+  tickets: number;
+}
 
-const agencies = [
-  ["GlobeLink Travels", "India", "platinum"], ["Mideast Holidays", "Middle East", "gold"],
-  ["EuroVoyage", "Europe", "platinum"], ["Sundial Tours", "SE Asia", "silver"],
-  ["Bharat Getaways", "India", "gold"], ["Desert Pearl Travel", "Middle East", "silver"],
-  ["Alpine Routes", "Europe", "gold"], ["Island Hopper Co", "SE Asia", "silver"]
-];
-const insertAgency = db.prepare("INSERT INTO agencies (name, region, tier) VALUES (?, ?, ?)");
-for (const agency of agencies) insertAgency.run(...agency);
+interface TicketSeed {
+  bookingIndex: number;
+  intent: string;
+  ageMinutes?: number;
+  fraction?: number;
+}
 
-const agents = [
-  ["Aarav Mehta", "agent", "India", "08:00", "17:00", 1], ["Nisha Kapoor", "agent", "India", "12:00", "21:00", 1],
-  ["Omar Haddad", "agent", "Middle East", "09:00", "18:00", 1], ["Lena Fischer", "agent", "Europe", "07:00", "16:00", 0],
-  ["Ravi Tan", "agent", "SE Asia", "10:00", "19:00", 1], ["Sofia Rossi", "agent", "Europe", "14:00", "23:00", 0],
-  ["Maya Singh", "agent", "India", "16:00", "01:00", 1], ["Kenji Watanabe", "agent", "SE Asia", "06:00", "15:00", 0],
-  ["Priya Shah", "escalation_manager", "India", "09:00", "18:00", 1], ["Daniel Cohen", "escalation_manager", "Middle East", "10:00", "19:00", 1]
-];
-const insertAgent = db.prepare("INSERT INTO agents (name, role, region, shift_start, shift_end, online) VALUES (?, ?, ?, ?, ?, ?)");
-for (const agent of agents) insertAgent.run(...agent);
+function countRows(table: string): number {
+  return (db.prepare(`SELECT COUNT(*) AS count FROM ${table}`).get() as { count: number }).count;
+}
 
-const today = new Date();
-const dateAt = (days: number): string => {
+function dateAt(today: Date, days: number): string {
   const date = new Date(today);
   date.setDate(date.getDate() + days);
   return date.toISOString().slice(0, 10);
-};
-const bookingRefs: string[] = [];
-const bookingAgencyIds: number[] = [];
-const insertBooking = db.prepare("INSERT INTO bookings (booking_ref, agency_id, hotel_name, destination, check_in_date, lcd_date, amount) VALUES (?, ?, ?, ?, ?, ?, ?)");
-const hotels = ["Taj Palace", "Marina Bay Hotel", "Grand Central", "Riverside Suites", "Azure Resort", "City Garden"];
-const destinations = ["Goa", "Dubai", "Paris", "Singapore", "London", "Bangkok"];
-for (let i = 0; i < 30; i++) {
-  const ref = `TBOH${String(123456 + i).padStart(6, "0")}`;
-  bookingRefs.push(ref);
-  bookingAgencyIds.push((i % 8) + 1);
-  const checkInDays = i < 4 ? i + 1 : 5 + ((i * 7) % 56);
-  insertBooking.run(ref, (i % 8) + 1, hotels[i % hotels.length], destinations[i % destinations.length], dateAt(checkInDays), dateAt(checkInDays - 2), 120 + i * 47.5);
 }
 
-const intents = ["refund", "cancellation", "amendment", "voucher", "payment", "other"] as const;
-const subjects = ["Refund request", "Cancellation assistance", "Amend booking dates", "Voucher not received", "Payment verification", "Booking question"];
-const repeated = [
-  [1, 0, "refund"], [1, 0, "refund"], [1, 0, "refund"], [2, 1, "cancellation"],
-  [2, 1, "cancellation"], [3, 2, "amendment"], [3, 2, "amendment"], [3, 2, "amendment"]
-] as const;
-const insertTicket = db.prepare("INSERT INTO tickets (agency_id, booking_ref, intent, subject, description, priority, status, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)");
-const insertMessage = db.prepare("INSERT INTO messages (ticket_id, sender, body, created_at) VALUES (?, ?, ?, ?)");
-const createdTicketIds: number[] = [];
-for (let i = 0; i < 40; i++) {
-  const repeat = repeated[i];
-  const bookingIndex = repeat ? repeat[1] : i % 30;
-  const agencyId = bookingAgencyIds[bookingIndex];
-  const intent = repeat ? repeat[2] : intents[i % intents.length];
-  const createdAt = new Date(Date.now() - (i < 4 ? (i + 1) * 3 * 60000 : i * 3600000)).toISOString();
-  const ticket = insertTicket.run(agencyId, bookingRefs[bookingIndex], intent, subjects[intents.indexOf(intent)], `Agency needs help with ${intent} for booking ${bookingRefs[bookingIndex]}.`, "low", i % 9 === 0 ? "resolved" : "open", createdAt);
-  const ticketId = Number(ticket.lastInsertRowid);
-  createdTicketIds.push(ticketId);
-  processTicket(ticketId, createdAt, true);
-  insertMessage.run(ticketId, "agency", `Hello, please help with our ${intent} request.`, createdAt);
-  insertMessage.run(ticketId, "system", "Ticket received and awaiting assignment.", new Date(new Date(createdAt).getTime() + 60000).toISOString());
+export function seedDatabase(seedNow = new Date()): SeedResult {
+  initializeDatabase();
+  db.exec(`
+    DELETE FROM ticket_events;
+    DELETE FROM side_conversations;
+    DELETE FROM messages;
+    DELETE FROM tickets;
+    DELETE FROM bookings;
+    DELETE FROM agents;
+    DELETE FROM agencies;
+    DELETE FROM sqlite_sequence
+    WHERE name IN ('agencies', 'agents', 'bookings', 'tickets', 'messages', 'side_conversations', 'ticket_events');
+  `);
+
+  const agencies = [
+    ["GlobeLink Travels", "India", "platinum"], ["Mideast Holidays", "Middle East", "gold"],
+    ["EuroVoyage", "Europe", "platinum"], ["Sundial Tours", "SE Asia", "silver"],
+    ["Bharat Getaways", "India", "gold"], ["Desert Pearl Travel", "Middle East", "silver"],
+    ["Alpine Routes", "Europe", "gold"], ["Island Hopper Co", "SE Asia", "silver"]
+  ];
+  const insertAgency = db.prepare("INSERT INTO agencies (name, region, tier) VALUES (?, ?, ?)");
+  for (const agency of agencies) insertAgency.run(...agency);
+
+  const agents = [
+    ["Aarav Mehta", "agent", "India", "08:00", "17:00", 1], ["Nisha Kapoor", "agent", "India", "12:00", "21:00", 1],
+    ["Omar Haddad", "agent", "Middle East", "09:00", "18:00", 1], ["Lena Fischer", "agent", "Europe", "07:00", "16:00", 0],
+    ["Ravi Tan", "agent", "SE Asia", "10:00", "19:00", 1], ["Sofia Rossi", "agent", "Europe", "14:00", "23:00", 0],
+    ["Maya Singh", "agent", "India", "16:00", "01:00", 1], ["Kenji Watanabe", "agent", "SE Asia", "06:00", "15:00", 0],
+    ["Priya Shah", "escalation_manager", "India", "09:00", "18:00", 1], ["Daniel Cohen", "escalation_manager", "Middle East", "10:00", "19:00", 1]
+  ];
+  const insertAgent = db.prepare("INSERT INTO agents (name, role, region, shift_start, shift_end, online) VALUES (?, ?, ?, ?, ?, ?)");
+  for (const agent of agents) insertAgent.run(...agent);
+
+  const bookingRefs: string[] = [];
+  const bookingAgencyIds: number[] = [];
+  const bookingDates: Array<{ checkIn: string; lcd: string }> = [];
+  const insertBooking = db.prepare("INSERT INTO bookings (booking_ref, agency_id, hotel_name, destination, check_in_date, lcd_date, amount) VALUES (?, ?, ?, ?, ?, ?, ?)");
+  const hotels = ["Taj Palace", "Marina Bay Hotel", "Grand Central", "Riverside Suites", "Azure Resort", "City Garden"];
+  const destinations = ["Goa", "Dubai", "Paris", "Singapore", "London", "Bangkok"];
+  for (let i = 0; i < 30; i++) {
+    const ref = `TBOH${String(123456 + i).padStart(6, "0")}`;
+    const checkIn = dateAt(seedNow, i < 4 ? i + 1 : 5 + ((i * 7) % 56));
+    const lcd = dateAt(seedNow, i < 4 ? i : 3 + ((i * 7) % 56));
+    bookingRefs.push(ref);
+    bookingAgencyIds.push((i % 8) + 1);
+    bookingDates.push({ checkIn, lcd });
+    insertBooking.run(ref, bookingAgencyIds[i], hotels[i % hotels.length], destinations[i % destinations.length], checkIn, lcd, 120 + i * 47.5);
+  }
+
+  const intents = ["refund", "cancellation", "amendment", "voucher", "payment", "other"] as const;
+  const subjects = ["Refund request", "Cancellation assistance", "Amend booking dates", "Voucher not received", "Payment verification", "Booking question"];
+  const ticketsToSeed: TicketSeed[] = [
+    { bookingIndex: 0, intent: "refund", ageMinutes: 34 }, { bookingIndex: 0, intent: "refund", ageMinutes: 27 },
+    { bookingIndex: 0, intent: "refund", ageMinutes: 20 }, { bookingIndex: 0, intent: "refund", ageMinutes: 13 },
+    { bookingIndex: 1, intent: "cancellation", ageMinutes: 14 }, { bookingIndex: 1, intent: "cancellation", ageMinutes: 13 },
+    { bookingIndex: 1, intent: "cancellation", ageMinutes: 12 }, { bookingIndex: 2, intent: "amendment", ageMinutes: 58 },
+    { bookingIndex: 2, intent: "amendment", ageMinutes: 55 }, { bookingIndex: 2, intent: "amendment", ageMinutes: 50 }
+  ];
+  for (let bookingIndex = 3; bookingIndex < 30; bookingIndex++) ticketsToSeed.push({ bookingIndex, intent: intents[(bookingIndex + 1) % intents.length] });
+  ticketsToSeed.push({ bookingIndex: 0, intent: "voucher", ageMinutes: 13 }, { bookingIndex: 1, intent: "payment" }, { bookingIndex: 2, intent: "other" });
+
+  const resolvedIndexes = new Set([10, 14, 24, 34, 39]);
+  const insertTicket = db.prepare("INSERT INTO tickets (agency_id, booking_ref, intent, subject, description, priority, status, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)");
+  const insertMessage = db.prepare("INSERT INTO messages (ticket_id, sender, body, created_at) VALUES (?, ?, ?, ?)");
+  const seedNowMs = seedNow.getTime();
+  for (let i = 0; i < ticketsToSeed.length; i++) {
+    const ticketSeed = ticketsToSeed[i];
+    const bookingIndex = ticketSeed.bookingIndex;
+    const { checkIn, lcd } = bookingDates[bookingIndex];
+    const initialSla = computeSla(checkIn, lcd, seedNow);
+    const ageMinutes = ticketSeed.ageMinutes ?? (resolvedIndexes.has(i) ? initialSla.sla_minutes * 0.1 : i === 11 ? initialSla.sla_minutes * 0.9 : initialSla.sla_minutes * 0.2);
+    const createdAt = new Date(seedNowMs - ageMinutes * 60000).toISOString();
+    const status = resolvedIndexes.has(i) ? "resolved" : "open";
+    const agencyId = bookingAgencyIds[bookingIndex];
+    const intentIndex = intents.indexOf(ticketSeed.intent as typeof intents[number]);
+    const ticket = insertTicket.run(agencyId, bookingRefs[bookingIndex], ticketSeed.intent, subjects[intentIndex], `Agency needs help with ${ticketSeed.intent} for booking ${bookingRefs[bookingIndex]}.`, "low", status, createdAt);
+    const ticketId = Number(ticket.lastInsertRowid);
+    processTicket(ticketId, createdAt, true);
+    insertMessage.run(ticketId, "agency", `Hello, please help with our ${ticketSeed.intent} request.`, createdAt);
+    insertMessage.run(ticketId, "system", "Ticket received and awaiting assignment.", new Date(new Date(createdAt).getTime() + 60000).toISOString());
+  }
+
+  const result = { agencies: countRows("agencies"), agents: countRows("agents"), bookings: countRows("bookings"), tickets: countRows("tickets") };
+  console.log(`Seeded database: ${databasePath}`);
+  console.log(`Row counts: agencies=${result.agencies}, agents=${result.agents}, bookings=${result.bookings}, tickets=${result.tickets}`);
+  return result;
 }
-const countRows = (table: string): number => {
-  const row = db.prepare(`SELECT COUNT(*) AS count FROM ${table}`).get() as { count: number };
-  return row.count;
-};
-console.log(`Seeded database: ${databasePath}`);
-console.log(`Row counts: agencies=${countRows("agencies")}, agents=${countRows("agents")}, bookings=${countRows("bookings")}, tickets=${countRows("tickets")}`);
-db.close();
+
+if (process.argv[1] && path.resolve(process.argv[1]) === path.resolve(__filename)) {
+  seedDatabase();
+  db.close();
+}

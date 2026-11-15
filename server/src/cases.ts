@@ -15,7 +15,7 @@ export function buildCaseBanner(contactCount: number, intent: string, daysSpan: 
   return `${ordinal(contactCount)} contact about this ${intent} ${elapsed}`;
 }
 
-export function linkTicketToCase(ticketId: number): string {
+export function linkTicketToCase(ticketId: number, eventAt: string | Date = new Date()): string {
   const ticket = db.prepare("SELECT agency_id, booking_ref, intent FROM tickets WHERE id = ?").get(ticketId) as {
     agency_id: number; booking_ref: string | null; intent: string;
   } | undefined;
@@ -30,7 +30,7 @@ export function linkTicketToCase(ticketId: number): string {
 
   if (earlier.count > 0) {
     db.prepare("INSERT INTO ticket_events (ticket_id, type, detail, created_at) VALUES (?, 'case_linked', ?, ?)")
-      .run(ticketId, `Linked to case with ${earlier.count} earlier tickets`, new Date().toISOString());
+      .run(ticketId, `Linked to case with ${earlier.count} earlier tickets`, eventAt instanceof Date ? eventAt.toISOString() : eventAt);
   }
   return caseId;
 }
