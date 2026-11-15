@@ -4,7 +4,8 @@
   "scripts": {
     "dev": "tsx watch src/index.ts",
     "build": "tsc",
-    "seed": "tsx src/seed.ts"
+    "seed": "tsx src/seed.ts",
+    "test": "tsx --test src/cases.test.ts"
   },
   "dependencies": {
     "better-sqlite3": "^12.4.1",

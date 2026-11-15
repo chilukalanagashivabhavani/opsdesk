@@ -1,4 +1,5 @@
 import { databasePath, db, initializeDatabase } from "./db";
+import { linkTicketToCase } from "./cases";
 
 initializeDatabase();
 db.exec(`
@@ -41,12 +42,14 @@ const dateAt = (days: number): string => {
   return date.toISOString().slice(0, 10);
 };
 const bookingRefs: string[] = [];
+const bookingAgencyIds: number[] = [];
 const insertBooking = db.prepare("INSERT INTO bookings (booking_ref, agency_id, hotel_name, destination, check_in_date, lcd_date, amount) VALUES (?, ?, ?, ?, ?, ?, ?)");
 const hotels = ["Taj Palace", "Marina Bay Hotel", "Grand Central", "Riverside Suites", "Azure Resort", "City Garden"];
 const destinations = ["Goa", "Dubai", "Paris", "Singapore", "London", "Bangkok"];
 for (let i = 0; i < 30; i++) {
   const ref = `TBOH${String(123456 + i).padStart(6, "0")}`;
   bookingRefs.push(ref);
+  bookingAgencyIds.push((i % 8) + 1);
   const checkInDays = i < 4 ? i + 1 : 5 + ((i * 7) % 56);
   insertBooking.run(ref, (i % 8) + 1, hotels[i % hotels.length], destinations[i % destinations.length], dateAt(checkInDays), dateAt(checkInDays - 2), 120 + i * 47.5);
 }
@@ -62,12 +65,13 @@ const insertMessage = db.prepare("INSERT INTO messages (ticket_id, sender, body,
 const createdTicketIds: number[] = [];
 for (let i = 0; i < 40; i++) {
   const repeat = repeated[i];
-  const agencyId = repeat ? repeat[0] : (i % 8) + 1;
   const bookingIndex = repeat ? repeat[1] : i % 30;
+  const agencyId = bookingAgencyIds[bookingIndex];
   const intent = repeat ? repeat[2] : intents[i % intents.length];
   const ticket = insertTicket.run(agencyId, bookingRefs[bookingIndex], intent, subjects[intents.indexOf(intent)], `Agency needs help with ${intent} for booking ${bookingRefs[bookingIndex]}.`, i < 4 ? "urgent" : "normal", i % 9 === 0 ? "resolved" : "open", new Date(Date.now() - i * 3600000).toISOString());
   const ticketId = Number(ticket.lastInsertRowid);
   createdTicketIds.push(ticketId);
+  linkTicketToCase(ticketId);
   insertMessage.run(ticketId, "agency", `Hello, please help with our ${intent} request.`, new Date(Date.now() - i * 3600000).toISOString());
   insertMessage.run(ticketId, "system", "Ticket received and awaiting assignment.", new Date(Date.now() - i * 3600000 + 60000).toISOString());
 }
