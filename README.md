@@ -36,3 +36,20 @@ After running `npm run seed` and `npm run dev`, open these URLs in a browser:
 - `http://localhost:3000/api/tickets/3/case`
 - `http://localhost:3000/api/tickets`
 - `http://localhost:3000/api/tickets/3`
+
+## Phase 3 browser verification
+
+The server now computes travel-aware SLA priority, routes tickets to online agents, and escalates at-risk tickets.
+
+Open these URLs after `npm run seed` and `npm run dev`:
+
+- `http://localhost:3000/api/tickets`
+- `http://localhost:3000/api/tickets/3/events`
+
+To trigger the critical demo ticket from PowerShell:
+
+```powershell
+Invoke-RestMethod -Method Post -Uri http://localhost:3000/api/demo/critical
+```
+
+The response includes the created ticket, assigned agent, SLA fields, and event history.

@@ -1,5 +1,5 @@
 import { databasePath, db, initializeDatabase } from "./db";
-import { linkTicketToCase } from "./cases";
+import { processTicket } from "./pipeline";
 
 initializeDatabase();
 db.exec(`
@@ -68,12 +68,13 @@ for (let i = 0; i < 40; i++) {
   const bookingIndex = repeat ? repeat[1] : i % 30;
   const agencyId = bookingAgencyIds[bookingIndex];
   const intent = repeat ? repeat[2] : intents[i % intents.length];
-  const ticket = insertTicket.run(agencyId, bookingRefs[bookingIndex], intent, subjects[intents.indexOf(intent)], `Agency needs help with ${intent} for booking ${bookingRefs[bookingIndex]}.`, i < 4 ? "urgent" : "normal", i % 9 === 0 ? "resolved" : "open", new Date(Date.now() - i * 3600000).toISOString());
+  const createdAt = new Date(Date.now() - (i < 4 ? (i + 1) * 3 * 60000 : i * 3600000)).toISOString();
+  const ticket = insertTicket.run(agencyId, bookingRefs[bookingIndex], intent, subjects[intents.indexOf(intent)], `Agency needs help with ${intent} for booking ${bookingRefs[bookingIndex]}.`, "low", i % 9 === 0 ? "resolved" : "open", createdAt);
   const ticketId = Number(ticket.lastInsertRowid);
   createdTicketIds.push(ticketId);
-  linkTicketToCase(ticketId);
-  insertMessage.run(ticketId, "agency", `Hello, please help with our ${intent} request.`, new Date(Date.now() - i * 3600000).toISOString());
-  insertMessage.run(ticketId, "system", "Ticket received and awaiting assignment.", new Date(Date.now() - i * 3600000 + 60000).toISOString());
+  processTicket(ticketId, createdAt, true);
+  insertMessage.run(ticketId, "agency", `Hello, please help with our ${intent} request.`, createdAt);
+  insertMessage.run(ticketId, "system", "Ticket received and awaiting assignment.", new Date(new Date(createdAt).getTime() + 60000).toISOString());
 }
 const countRows = (table: string): number => {
   const row = db.prepare(`SELECT COUNT(*) AS count FROM ${table}`).get() as { count: number };

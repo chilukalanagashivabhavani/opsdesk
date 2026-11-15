@@ -42,7 +42,7 @@ export function initializeDatabase(): void {
       intent TEXT NOT NULL CHECK (intent IN ('refund', 'cancellation', 'amendment', 'voucher', 'payment', 'other')),
       subject TEXT NOT NULL,
       description TEXT NOT NULL,
-      priority TEXT NOT NULL DEFAULT 'normal',
+      priority TEXT NOT NULL DEFAULT 'low',
       status TEXT NOT NULL DEFAULT 'open' CHECK (status IN ('open', 'pending', 'resolved')),
       assigned_agent_id INTEGER REFERENCES agents(id),
       case_id TEXT,
