@@ -7,6 +7,8 @@ import { processTicket } from "./pipeline";
 import { seedDatabase } from "./seed";
 import { slaWindowMinutes, SlaPriority } from "./sla";
 import { createSideConversation, Recipient, recipientRoles, transferTicket, updateTicketStatus } from "./actions";
+import { getExportFilters, getExportStats, streamTicketCsv } from "./export";
+import { getInsights } from "./insights";
 
 initializeDatabase();
 const app = express();
@@ -56,6 +58,15 @@ app.get("/api/agencies/:id/bookings", (req, res) => {
   return res.json(db.prepare("SELECT * FROM bookings WHERE agency_id = ? ORDER BY check_in_date").all(Number(req.params.id)));
 });
 app.get("/api/agents", (_req, res) => res.json(db.prepare("SELECT * FROM agents ORDER BY name").all()));
+app.get("/api/insights", async (req, res) => {
+  try {
+    return res.json(await getInsights(req.query.refresh === "1"));
+  } catch (error) {
+    return res.status(500).json({ error: error instanceof Error ? error.message : "Unable to build insights" });
+  }
+});
+app.get("/api/export/tickets.csv", (req, res) => streamTicketCsv(db, res, getExportFilters(req.query as Record<string, unknown>)));
+app.get("/api/export/stats", (req, res) => res.json({ total_rows: getExportStats(db, getExportFilters(req.query as Record<string, unknown>)) }));
 app.get("/api/tickets", (_req, res) => {
   const now = new Date();
   const tickets = db.prepare(ticketSelect).all().map((row) => decorateTicket(row as Record<string, unknown>, now));

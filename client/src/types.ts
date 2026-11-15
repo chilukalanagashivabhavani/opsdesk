@@ -121,3 +121,22 @@ export interface CaseDetail {
   tickets: Array<Pick<Ticket, "id" | "subject" | "status" | "created_at">>;
   banner: string | null;
 }
+
+export interface InsightTheme {
+  id: string;
+  title: string;
+  ticket_count: number;
+  agency_count: number;
+  trend: "up" | "flat" | "down";
+  last_7_days: number;
+  previous_7_days: number;
+  sample_ticket_ids: number[];
+  suggested_action: string;
+}
+
+export interface InsightsResponse {
+  source: "ai" | "rules";
+  themes: InsightTheme[];
+  intent_counts: Array<{ intent: string; count: number }>;
+  top_agencies: Array<{ agency: string; count: number }>;
+}

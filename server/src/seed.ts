@@ -127,6 +127,18 @@ export function seedDatabase(seedNow = new Date()): SeedResult {
     conversation.messages.forEach((body, index) => insertSideMessage.run(Number(result.lastInsertRowid), index === 0 ? assigned.name : "External partner", body, new Date(new Date(created).getTime() + index * 60000).toISOString()));
   }
 
+  const historical = [
+    ["refund", "Refund status follow-up", "The agency is waiting for a refund update."],
+    ["voucher", "Voucher delivery question", "The voucher document was not received."]
+  ] as const;
+  for (let i = 0; i < 25; i++) {
+    const [intent, subject, description] = historical[i % historical.length];
+    const createdAt = new Date(seedNowMs - ((i * 13) % 14 + 1) * 86400000 - (i % 6) * 3600000).toISOString();
+    const bookingIndex = (i + 5) % bookingRefs.length;
+    const ticket = insertTicket.run(bookingAgencyIds[bookingIndex], bookingRefs[bookingIndex], intent, subject, description, "low", "resolved", createdAt);
+    insertMessage.run(Number(ticket.lastInsertRowid), "agency", `Historical agency message about ${intent}.`, createdAt);
+  }
+
   const result = { agencies: countRows("agencies"), agents: countRows("agents"), bookings: countRows("bookings"), tickets: countRows("tickets") };
   console.log(`Seeded database: ${databasePath}`);
   console.log(`Row counts: agencies=${result.agencies}, agents=${result.agents}, bookings=${result.bookings}, tickets=${result.tickets}`);

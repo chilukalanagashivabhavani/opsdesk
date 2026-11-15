@@ -1,4 +1,4 @@
-import { Agency, Agent, Booking, CaseDetail, CaseSummary, Recipient, RecipientPreset, SideConversation, SideMessage, Ticket, TicketEvent } from "./types";
+import { Agency, Agent, Booking, CaseDetail, CaseSummary, InsightsResponse, Recipient, RecipientPreset, SideConversation, SideMessage, Ticket, TicketEvent } from "./types";
 
 async function request<T>(path: string, options?: RequestInit): Promise<T> {
   const response = await fetch(path, { ...options, headers: { "Content-Type": "application/json", ...options?.headers } });
@@ -20,6 +20,8 @@ export const api = {
   getSideConversations: (id: number) => request<SideConversation[]>(`/api/tickets/${id}/side-conversations`),
   getRecipientPresets: () => request<RecipientPreset[]>("/api/recipient-presets"),
   getCases: () => request<CaseSummary[]>("/api/cases"),
+  getInsights: (refresh = false) => request<InsightsResponse>(`/api/insights${refresh ? "?refresh=1" : ""}`),
+  getExportStats: (query: string) => request<{ total_rows: number }>(`/api/export/stats${query ? `?${query}` : ""}`),
   createTicket: (payload: { agency_id: number; booking_ref?: string; intent: string; subject: string; description: string }) =>
     request<Ticket>("/api/tickets", { method: "POST", body: JSON.stringify(payload) }),
   createCriticalDemo: () => request<{ ticket: Ticket; events: TicketEvent[] }>("/api/demo/critical", { method: "POST" }),

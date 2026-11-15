@@ -74,3 +74,19 @@ Run `npm run seed` and `npm run dev`, then open `http://localhost:5173/tickets/3
 2. In **Actions**, choose another agent and click **Transfer**. Confirm the success message, unchanged side conversations, and the `transferred` event.
 3. Use **Resolve ticket**, then return to `/tickets`; the ticket appears at the bottom. Open it again and use **Reopen ticket** to restore it.
 4. Use **New side conversation**, add a preset recipient, enter a message, and submit. Reply from the conversation thread.
+
+## Phase 6 insights and CSV export
+
+The Insights page works without an API key using the rules engine. If `ANTHROPIC_API_KEY` is configured, it tries the AI engine first and falls back to rules on errors.
+
+Open `http://localhost:5173/insights` to view recurring themes, trend counts, intent totals, and top agencies. Click a theme's sample ticket links to inspect source tickets, or click **Refresh** to bypass the 60-second cache.
+
+On `http://localhost:5173/tickets`, use the filters and click **Export CSV**. The displayed row count follows the active filters. Open the downloaded `opsdesk-tickets-YYYY-MM-DD.csv` file in Excel or VS Code; it includes a UTF-8 BOM and all matching rows.
+
+To verify the export has no row cap:
+
+```bash
+npm run test:export
+```
+
+The test inserts 10,000 synthetic tickets into an in-memory database and confirms all 10,000 rows are streamed.

@@ -4,7 +4,8 @@
   "scripts": {
     "dev": "concurrently \"npm run dev --prefix server\" \"npm run dev --prefix client\"",
     "seed": "npm run seed --prefix server",
-    "build": "npm run build --prefix server && npm run build --prefix client"
+    "build": "npm run build --prefix server && npm run build --prefix client",
+    "test:export": "npm run test:export --prefix server"
   },
   "devDependencies": {
     "concurrently": "^9.1.2"
