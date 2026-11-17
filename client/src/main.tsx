@@ -20,7 +20,7 @@ class AppErrorBoundary extends Component<{ children: ReactNode }, ErrorBoundaryS
 
   render() {
     if (this.state.error) {
-      return <main className="min-h-screen bg-slate-950 px-6 py-12 text-slate-100"><div className="mx-auto max-w-2xl rounded-xl border border-rose-500/30 bg-rose-500/10 p-6"><h1 className="text-xl font-semibold text-rose-200">OpsDesk could not display this page</h1><p className="mt-3 text-sm text-rose-100">{this.state.error.message || "An unexpected error occurred."}</p></div></main>;
+      return <main className="min-h-screen bg-[#FAFAFC] px-6 py-12 text-slate-900"><div className="mx-auto max-w-2xl rounded-[20px] border border-rose-200 bg-white p-6 shadow-xl"><h1 className="text-xl font-semibold text-rose-900">OpsDesk could not display this page</h1><p className="mt-3 text-sm text-rose-700">{this.state.error.message || "An unexpected error occurred."}</p></div></main>;
     }
     return this.props.children;
   }

@@ -1,36 +1,40 @@
-import { Link } from "react-router-dom";
-import { Priority, SlaStatus, Ticket, TicketEvent } from "../types";
+import { AlertCircle, ArrowRight, CheckCircle2, Clock3, Inbox, LucideIcon, RefreshCw, Sparkles } from "lucide-react";
 import { useEffect, useState } from "react";
+import { Priority, SlaStatus, Ticket, TicketEvent } from "../types";
 
 const priorityClasses: Record<Priority, string> = {
-  critical: "bg-rose-500/15 text-rose-300 ring-1 ring-rose-500/30",
-  high: "bg-orange-500/15 text-orange-300 ring-1 ring-orange-500/30",
-  medium: "bg-amber-500/15 text-amber-300 ring-1 ring-amber-500/30",
-  low: "bg-slate-500/15 text-slate-300 ring-1 ring-slate-500/30"
+  critical: "badge-critical",
+  high: "badge-high",
+  medium: "badge-medium",
+  low: "badge-low"
 };
 
-export function PriorityBadge({ priority }: { priority: Priority }) {
-  return <span className={`rounded-full px-2.5 py-1 text-xs font-semibold uppercase tracking-wide ${priorityClasses[priority]}`}>{priority}</span>;
+const statusClasses: Record<Ticket["status"], string> = {
+  open: "status-open",
+  pending: "status-pending",
+  resolved: "status-resolved"
+};
+
+export function Avatar({ name, size = "md", tone = "indigo" }: { name?: string | null; size?: "sm" | "md" | "lg"; tone?: "indigo" | "teal" | "coral" | "amber" }) {
+  const initials = (name ?? "Unassigned").split(/\s+/).filter(Boolean).slice(0, 2).map((part) => part[0]).join("").toUpperCase();
+  return <span className={`avatar avatar-${size} avatar-${tone}`} title={name ?? "Unassigned"}>{initials || "?"}</span>;
 }
 
-const slaClasses: Record<SlaStatus, string> = {
-  ok: "bg-emerald-500/15 text-emerald-300",
-  at_risk: "bg-amber-500/15 text-amber-300",
-  breached: "bg-rose-500/15 text-rose-300"
-};
+export function PriorityBadge({ priority }: { priority: Priority }) {
+  return <span className={`badge ${priorityClasses[priority]}`}><span className="badge-dot" />{priority}</span>;
+}
+
+export function StatusBadge({ status }: { status: Ticket["status"] }) {
+  return <span className={`badge ${statusClasses[status]}`}>{status}</span>;
+}
 
 function formatCountdown(dueAt: string | null, now: number): { text: string; status: SlaStatus } {
   if (!dueAt) return { text: "No SLA", status: "ok" };
   const diff = new Date(dueAt).getTime() - now;
-  const absolute = Math.abs(diff);
-  const minutes = Math.floor(absolute / 60000);
-  const seconds = Math.floor((absolute % 60000) / 1000);
-  if (diff <= 0) {
-    const hours = Math.floor(minutes / 60);
-    const remainingMinutes = minutes % 60;
-    return { text: `Breached ${hours ? `${hours}h ` : ""}${remainingMinutes}m ago`, status: "breached" };
-  }
-  return { text: `${minutes}m ${String(seconds).padStart(2, "0")}s left`, status: minutes < 30 ? "at_risk" : "ok" };
+  const minutes = Math.floor(Math.abs(diff) / 60000);
+  const seconds = Math.floor((Math.abs(diff) % 60000) / 1000);
+  if (diff <= 0) return { text: `Breached ${Math.floor(minutes / 60) ? `${Math.floor(minutes / 60)}h ` : ""}${minutes % 60}m ago`, status: "breached" };
+  return { text: `${minutes}m ${String(seconds).padStart(2, "0")}s`, status: minutes < 30 ? "at_risk" : "ok" };
 }
 
 export function SlaBadge({ ticket }: { ticket: Pick<Ticket, "sla_due_at" | "sla_status" | "priority"> }) {
@@ -39,47 +43,53 @@ export function SlaBadge({ ticket }: { ticket: Pick<Ticket, "sla_due_at" | "sla_
     const timer = window.setInterval(() => setNow(Date.now()), 1000);
     return () => window.clearInterval(timer);
   }, []);
-  const countdown = formatCountdown(ticket.sla_due_at, now);
-  const status = countdown.status === "ok" && ticket.sla_status === "at_risk" ? "at_risk" : countdown.status;
-  return <span className={`whitespace-nowrap rounded-full px-2.5 py-1 text-xs font-medium ${slaClasses[status]}`}>{countdown.text}</span>;
+  const countdown = formatCountdown(ticket?.sla_due_at ?? null, now);
+  const status = countdown.status === "ok" && ticket?.sla_status === "at_risk" ? "at_risk" : countdown.status;
+  return <span className={`sla sla-${status}`}><Clock3 size={13} />{countdown.text}</span>;
 }
 
-export function StatCard({ label, value, tone = "indigo" }: { label: string; value: number; tone?: "indigo" | "rose" | "amber" | "emerald" }) {
-  const tones = { indigo: "text-indigo-300", rose: "text-rose-300", amber: "text-amber-300", emerald: "text-emerald-300" };
-  return <div className="panel"><p className="text-sm text-slate-400">{label}</p><p className={`mt-3 text-3xl font-semibold ${tones[tone]}`}>{value}</p></div>;
+export function SlaProgress({ ticket }: { ticket: Ticket }) {
+  const status = ticket.sla_status ?? "ok";
+  return <div className="sla-progress-wrap"><div className="flex items-center justify-between"><span className="eyebrow">SLA countdown</span><SlaBadge ticket={ticket} /></div><div className="sla-progress"><span className={`sla-progress-fill sla-fill-${status}`} style={{ width: status === "breached" ? "100%" : status === "at_risk" ? "76%" : "36%" }} /></div><p className="mt-2 text-xs text-muted">{status === "breached" ? "Needs immediate attention" : status === "at_risk" ? "Approaching the response window" : "Within the response window"}</p></div>;
 }
 
-export function Timeline({ events }: { events: TicketEvent[] }) {
-  const eventStyle = (type: TicketEvent["type"]) => {
-    if (type === "escalated") return { dot: "bg-rose-400", icon: "!" };
-    if (type === "transferred") return { dot: "bg-amber-400", icon: "→" };
-    if (type === "status_changed") return { dot: "bg-emerald-400", icon: "✓" };
-    if (type === "side_conversation_created") return { dot: "bg-cyan-400", icon: "↗" };
-    if (type === "case_linked") return { dot: "bg-violet-400", icon: "⌘" };
-    return { dot: "bg-indigo-400", icon: "•" };
-  };
-  return <div className="space-y-4">{events.length === 0 ? <EmptyState text="No events recorded yet." /> : events.map((event) => (
-    <div key={event.id} className="relative border-l border-slate-700 pl-5">
-      <span className={`absolute -left-2 top-0.5 grid h-4 w-4 place-items-center rounded-full text-[10px] font-bold text-slate-950 ring-4 ring-slate-950 ${eventStyle(event.type).dot}`}>{eventStyle(event.type).icon}</span>
-      <p className="text-sm font-medium capitalize text-slate-200">{event.type.replace("_", " ")}</p>
-      <p className="mt-1 text-sm text-slate-400">{event.detail}</p>
-      <time className="mt-1 block text-xs text-slate-500">{new Date(event.created_at).toLocaleString()}</time>
-    </div>
-  ))}</div>;
+export function StatCard({ label, value, tone = "indigo", icon: Icon = Sparkles, caption }: { label: string; value: number; tone?: "indigo" | "rose" | "amber" | "emerald" | "teal"; icon?: LucideIcon; caption?: string }) {
+  const [displayValue, setDisplayValue] = useState(0);
+  useEffect(() => {
+    let frame = 0;
+    const start = performance.now();
+    const animate = (time: number) => {
+      const progress = Math.min((time - start) / 650, 1);
+      setDisplayValue(Math.round(value * (1 - Math.pow(1 - progress, 3))));
+      if (progress < 1) frame = requestAnimationFrame(animate);
+    };
+    frame = requestAnimationFrame(animate);
+    return () => cancelAnimationFrame(frame);
+  }, [value]);
+  return <article className="stat-card"><div className={`stat-icon stat-${tone}`}><Icon size={20} /></div><div className="mt-5 text-3xl font-bold tabular-nums text-ink">{displayValue}</div><p className="mt-1 text-sm font-semibold text-ink">{label}</p><p className="mt-1 text-xs text-muted">{caption ?? "Live from your operations queue"}</p></article>;
 }
 
-export function EmptyState({ text }: { text: string }) {
-  return <div className="rounded-xl border border-dashed border-slate-700 px-6 py-10 text-center text-sm text-slate-400">{text}</div>;
+export function PageHeader({ eyebrow, title, detail, actions }: { eyebrow?: string; title: string; detail: string; actions?: React.ReactNode }) {
+  return <div className="page-header"><div><p className="eyebrow">{eyebrow ?? "OpsDesk"}</p><h1>{title}</h1><p className="page-description">{detail}</p></div>{actions && <div className="page-actions">{actions}</div>}</div>;
 }
 
-export function ErrorState({ message }: { message: string }) {
-  return <div className="rounded-xl border border-rose-500/30 bg-rose-500/10 px-5 py-4 text-sm text-rose-200">{message}</div>;
+export function Skeleton({ className = "" }: { className?: string }) {
+  return <div className={`skeleton ${className}`} />;
 }
 
 export function LoadingState() {
-  return <div className="py-12 text-center text-sm text-slate-400">Loading OpsDesk data...</div>;
+  return <div className="space-y-5"><Skeleton className="h-12 w-2/5" /><Skeleton className="h-5 w-3/5" /><div className="grid gap-5 md:grid-cols-3"><Skeleton className="h-36" /><Skeleton className="h-36" /><Skeleton className="h-36" /></div><Skeleton className="h-72" /></div>;
 }
 
-export function TicketLink({ ticket }: { ticket: { id: number; subject: string } }) {
-  return <Link className="font-medium text-indigo-300 hover:text-indigo-200" to={`/tickets/${ticket.id}`}>{ticket.subject}</Link>;
+export function EmptyState({ text, action }: { text: string; action?: React.ReactNode }) {
+  return <div className="empty-state"><div className="empty-illustration"><Inbox size={28} /></div><p className="font-semibold text-ink">{text}</p><p className="mt-1 text-sm text-muted">Nothing to show here yet.</p>{action && <div className="mt-4">{action}</div>}</div>;
+}
+
+export function ErrorState({ message, onRetry }: { message: string; onRetry?: () => void }) {
+  return <div className="error-card"><AlertCircle size={20} /><div className="flex-1"><p className="font-semibold text-rose-900">Something went wrong</p><p className="mt-1 text-sm text-rose-700">{message}</p></div>{onRetry && <button className="button button-danger" onClick={onRetry}><RefreshCw size={15} /> Retry</button>}</div>;
+}
+
+export function Timeline({ events }: { events: TicketEvent[] }) {
+  const eventIcon = (type: TicketEvent["type"]) => type === "status_changed" ? <CheckCircle2 size={15} /> : type === "escalated" ? <AlertCircle size={15} /> : type === "routed" ? <ArrowRight size={15} /> : <Sparkles size={15} />;
+  return <div className="timeline">{(events ?? []).length === 0 ? <EmptyState text="No events recorded yet." /> : (events ?? []).map((event, index) => <div className="timeline-item" key={event.id}><div className={`timeline-dot timeline-dot-${event.type}`}>{eventIcon(event.type)}</div><div className="min-w-0 flex-1"><div className="flex flex-wrap items-center justify-between gap-2"><p className="font-semibold capitalize text-ink">{event.type.replace(/_/g, " ")}</p><time className="text-xs text-muted">{new Date(event.created_at).toLocaleString()}</time></div><p className="mt-1 text-sm text-muted">{event.detail}</p></div>{index < events.length - 1 && <span className="timeline-line" />}</div>)}</div>;
 }
