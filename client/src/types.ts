@@ -113,10 +113,10 @@ export interface CaseSummary {
 }
 
 export interface CaseDetail {
-  case_id: string;
+  case_id: string | null;
   contact_count: number;
-  first_contact_at: string;
-  last_contact_at: string;
+  first_contact_at: string | null;
+  last_contact_at: string | null;
   days_span: number;
   tickets: Array<Pick<Ticket, "id" | "subject" | "status" | "created_at">>;
   banner: string | null;

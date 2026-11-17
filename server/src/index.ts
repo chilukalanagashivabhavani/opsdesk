@@ -94,7 +94,14 @@ app.get("/api/tickets/:id/side-conversations", (req, res) => {
   const conversations = db.prepare("SELECT * FROM side_conversations WHERE ticket_id = ? ORDER BY id").all(Number(req.params.id)) as Array<{ id: number; ticket_id: number; subject: string; recipients_json: string }>;
   return res.json(conversations.map((conversation) => {
     const messages = db.prepare("SELECT * FROM side_messages WHERE side_conversation_id = ? ORDER BY created_at ASC, id ASC").all(conversation.id);
-    return { id: conversation.id, ticket_id: conversation.ticket_id, subject: conversation.subject, recipients: JSON.parse(conversation.recipients_json), messages, message_count: messages.length };
+    let recipients: Recipient[] = [];
+    try {
+      const parsed = JSON.parse(conversation.recipients_json);
+      if (Array.isArray(parsed)) recipients = parsed;
+    } catch {
+      recipients = [];
+    }
+    return { id: conversation.id, ticket_id: conversation.ticket_id, subject: conversation.subject, recipients, messages: messages ?? [], message_count: messages.length };
   }));
 });
 app.get("/api/recipient-presets", (_req, res) => res.json([
@@ -105,8 +112,9 @@ app.get("/api/recipient-presets", (_req, res) => res.json([
 app.get("/api/tickets/:id/case", (req, res) => {
   const ticket = db.prepare("SELECT case_id, intent FROM tickets WHERE id = ?").get(Number(req.params.id)) as { case_id: string | null; intent: string } | undefined;
   if (!ticket) return res.status(404).json({ error: "Ticket not found" });
-  if (!ticket.case_id) return res.status(404).json({ error: "Ticket has no linked case" });
+  if (!ticket.case_id) return res.json({ case_id: null, contact_count: 0, first_contact_at: null, last_contact_at: null, days_span: 0, tickets: [], banner: null });
   const tickets = db.prepare("SELECT id, subject, status, created_at FROM tickets WHERE case_id = ? ORDER BY created_at ASC, id ASC").all(ticket.case_id) as Array<{ id: number; subject: string; status: string; created_at: string }>;
+  if (tickets.length === 0) return res.json({ case_id: ticket.case_id, contact_count: 0, first_contact_at: null, last_contact_at: null, days_span: 0, tickets: [], banner: null });
   const first = tickets[0].created_at;
   const last = tickets[tickets.length - 1].created_at;
   const daysSpan = daysBetween(first, last);
