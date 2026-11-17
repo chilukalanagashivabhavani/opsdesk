@@ -1,19 +1,29 @@
 import { Agency, Agent, Booking, CaseDetail, CaseSummary, InsightsResponse, Recipient, RecipientPreset, SideConversation, SideMessage, Ticket, TicketEvent } from "./types";
 
 async function request<T>(path: string, options?: RequestInit): Promise<T> {
-  const response = await fetch(path, { ...options, headers: { "Content-Type": "application/json", ...options?.headers } });
+  const token = localStorage.getItem("opsdesk_token");
+  const response = await fetch(path, { ...options, headers: { "Content-Type": "application/json", ...(token ? { Authorization: `Bearer ${token}` } : {}), ...options?.headers } });
   if (!response.ok) {
     const body = await response.json().catch(() => ({})) as { error?: string };
+    if (response.status === 403) window.dispatchEvent(new CustomEvent("opsdesk:forbidden", { detail: body.error ?? "You do not have permission for this action" }));
+    if (response.status === 401 && !path.startsWith("/api/auth/")) {
+      localStorage.removeItem("opsdesk_token");
+      localStorage.removeItem("opsdesk_user");
+      window.location.href = "/login";
+    }
     throw new Error(body.error ?? `Request failed (${response.status})`);
   }
   return response.json() as Promise<T>;
 }
 
 export const api = {
+  login: (email: string, password: string) => request<{ token: string; user: import("./auth").AuthUser }>("/api/auth/login", { method: "POST", body: JSON.stringify({ email, password }) }),
+  demoLogin: (agent_id: number) => request<{ token: string; user: import("./auth").AuthUser }>("/api/auth/demo-login", { method: "POST", body: JSON.stringify({ agent_id }) }),
+  getMe: () => request<{ user: import("./auth").AuthUser }>("/api/auth/me"),
   getAgencies: () => request<Agency[]>("/api/agencies"),
   getAgencyBookings: (agencyId: number) => request<Booking[]>(`/api/agencies/${agencyId}/bookings`),
   getAgents: () => request<Agent[]>("/api/agents"),
-  getTickets: () => request<Ticket[]>("/api/tickets"),
+  getTickets: (mine = false) => request<Ticket[]>(`/api/tickets${mine ? "?mine=1" : ""}`),
   getTicket: (id: number) => request<Ticket>(`/api/tickets/${id}`),
   getTicketCase: (id: number) => request<CaseDetail>(`/api/tickets/${id}/case`),
   getTicketEvents: (id: number) => request<TicketEvent[]>(`/api/tickets/${id}/events`),
@@ -29,5 +39,5 @@ export const api = {
   updateTicket: (id: number, status: Ticket["status"]) => request<Ticket>(`/api/tickets/${id}`, { method: "PATCH", body: JSON.stringify({ status }) }),
   transferTicket: (id: number, agent_id: number, note?: string) => request<{ ticket: Ticket; sideConversationCount: number; recipientCount: number }>(`/api/tickets/${id}/transfer`, { method: "POST", body: JSON.stringify({ agent_id, note }) }),
   createSideConversation: (id: number, subject: string, recipients: Recipient[], body: string) => request<{ id: number }>(`/api/tickets/${id}/side-conversations`, { method: "POST", body: JSON.stringify({ subject, recipients, body }) }),
-  addSideMessage: (id: number, sender: string, body: string) => request<SideMessage>(`/api/side-conversations/${id}/messages`, { method: "POST", body: JSON.stringify({ sender, body }) })
+  addSideMessage: (id: number, body: string) => request<SideMessage>(`/api/side-conversations/${id}/messages`, { method: "POST", body: JSON.stringify({ body }) })
 };

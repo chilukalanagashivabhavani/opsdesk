@@ -1,8 +1,10 @@
 import { Component, ErrorInfo, ReactNode, StrictMode } from "react";
 import { createRoot } from "react-dom/client";
-import { BrowserRouter, Route, Routes } from "react-router-dom";
+import { BrowserRouter, Navigate, Route, Routes } from "react-router-dom";
 import { Layout } from "./App";
-import { CasesPage, Dashboard, InsightsPage, NewTicketPage, TicketDetailPage, TicketsPage } from "./pages";
+import { CasesPage, Dashboard, InsightsPage, LoginPage, NewTicketPage, TicketDetailPage, TicketsPage } from "./pages";
+import { AuthProvider, useAuth } from "./auth";
+import { LoadingState } from "./components";
 import "./index.css";
 
 type ErrorBoundaryState = { error: Error | null };
@@ -26,21 +28,31 @@ class AppErrorBoundary extends Component<{ children: ReactNode }, ErrorBoundaryS
   }
 }
 
+function ProtectedRoute({ children }: { children: ReactNode }) {
+  const { user, loading } = useAuth();
+  if (loading) return <LoadingState />;
+  if (!user) return <Navigate to="/login" replace />;
+  return <>{children}</>;
+}
+
 createRoot(document.getElementById("root")!).render(
   <StrictMode>
     <AppErrorBoundary>
-      <BrowserRouter>
-        <Routes>
-          <Route element={<Layout />}>
-            <Route path="/" element={<Dashboard />} />
-            <Route path="/tickets" element={<TicketsPage />} />
-            <Route path="/tickets/new" element={<NewTicketPage />} />
-            <Route path="/tickets/:id" element={<TicketDetailPage />} />
-            <Route path="/cases" element={<CasesPage />} />
-            <Route path="/insights" element={<InsightsPage />} />
-          </Route>
-        </Routes>
-      </BrowserRouter>
+      <AuthProvider>
+        <BrowserRouter>
+          <Routes>
+            <Route path="/login" element={<LoginPage />} />
+            <Route element={<ProtectedRoute><Layout /></ProtectedRoute>}>
+              <Route path="/" element={<Dashboard />} />
+              <Route path="/tickets" element={<TicketsPage />} />
+              <Route path="/tickets/new" element={<NewTicketPage />} />
+              <Route path="/tickets/:id" element={<TicketDetailPage />} />
+              <Route path="/cases" element={<CasesPage />} />
+              <Route path="/insights" element={<InsightsPage />} />
+            </Route>
+          </Routes>
+        </BrowserRouter>
+      </AuthProvider>
     </AppErrorBoundary>
   </StrictMode>
 );

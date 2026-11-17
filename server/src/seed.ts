@@ -1,4 +1,5 @@
 import path from "node:path";
+import { hashPassword } from "./auth";
 import { databasePath, db, initializeDatabase } from "./db";
 import { processTicket } from "./pipeline";
 import { computeSla } from "./sla";
@@ -52,14 +53,14 @@ export function seedDatabase(seedNow = new Date()): SeedResult {
   for (const agency of agencies) insertAgency.run(...agency);
 
   const agents = [
-    ["Aarav Mehta", "agent", "India", "08:00", "17:00", 1], ["Nisha Kapoor", "agent", "India", "12:00", "21:00", 1],
-    ["Omar Haddad", "agent", "Middle East", "09:00", "18:00", 1], ["Lena Fischer", "agent", "Europe", "07:00", "16:00", 0],
-    ["Ravi Tan", "agent", "SE Asia", "10:00", "19:00", 1], ["Sofia Rossi", "agent", "Europe", "14:00", "23:00", 0],
-    ["Maya Singh", "agent", "India", "16:00", "01:00", 1], ["Kenji Watanabe", "agent", "SE Asia", "06:00", "15:00", 0],
-    ["Priya Shah", "escalation_manager", "India", "09:00", "18:00", 1], ["Daniel Cohen", "escalation_manager", "Middle East", "10:00", "19:00", 1]
+    ["Aarav Mehta", "aarav.mehta@opsdesk.demo", "agent", "India", "08:00", "17:00", 1], ["Nisha Kapoor", "nisha.kapoor@opsdesk.demo", "agent", "India", "12:00", "21:00", 1],
+    ["Omar Haddad", "omar.haddad@opsdesk.demo", "agent", "Middle East", "09:00", "18:00", 1], ["Lena Fischer", "lena.fischer@opsdesk.demo", "agent", "Europe", "07:00", "16:00", 0],
+    ["Ravi Tan", "ravi.tan@opsdesk.demo", "agent", "SE Asia", "10:00", "19:00", 1], ["Sofia Rossi", "sofia.rossi@opsdesk.demo", "agent", "Europe", "14:00", "23:00", 0],
+    ["Maya Singh", "maya.singh@opsdesk.demo", "agent", "India", "16:00", "01:00", 1], ["Kenji Watanabe", "kenji.watanabe@opsdesk.demo", "agent", "SE Asia", "06:00", "15:00", 0],
+    ["Priya Shah", "priya.shah@opsdesk.demo", "escalation_manager", "India", "09:00", "18:00", 1], ["Daniel Cohen", "daniel.cohen@opsdesk.demo", "escalation_manager", "Middle East", "10:00", "19:00", 1]
   ];
-  const insertAgent = db.prepare("INSERT INTO agents (name, role, region, shift_start, shift_end, online) VALUES (?, ?, ?, ?, ?, ?)");
-  for (const agent of agents) insertAgent.run(...agent);
+  const insertAgent = db.prepare("INSERT INTO agents (name, email, role, region, shift_start, shift_end, online, password_hash) VALUES (?, ?, ?, ?, ?, ?, ?, ?)");
+  for (const agent of agents) insertAgent.run(...agent.slice(0, 7), hashPassword("demo123"));
 
   const bookingRefs: string[] = [];
   const bookingAgencyIds: number[] = [];

@@ -21,6 +21,8 @@ export function initializeDatabase(): void {
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       name TEXT NOT NULL,
       role TEXT NOT NULL CHECK (role IN ('agent', 'escalation_manager')),
+      email TEXT,
+      password_hash TEXT,
       region TEXT NOT NULL,
       shift_start TEXT NOT NULL,
       shift_end TEXT NOT NULL,
@@ -78,4 +80,8 @@ export function initializeDatabase(): void {
       created_at TEXT NOT NULL
     );
   `);
+  const columns = db.prepare("PRAGMA table_info(agents)").all() as Array<{ name: string }>;
+  if (!columns.some((column) => column.name === "email")) db.exec("ALTER TABLE agents ADD COLUMN email TEXT");
+  if (!columns.some((column) => column.name === "password_hash")) db.exec("ALTER TABLE agents ADD COLUMN password_hash TEXT");
+  db.exec("CREATE UNIQUE INDEX IF NOT EXISTS agents_email_unique ON agents(email)");
 }

@@ -9,6 +9,7 @@ import { slaWindowMinutes, SlaPriority } from "./sla";
 import { createSideConversation, Recipient, recipientRoles, transferTicket, updateTicketStatus } from "./actions";
 import { getExportFilters, getExportStats, streamTicketCsv } from "./export";
 import { getInsights } from "./insights";
+import { authenticate, findUserByEmail, issueToken, publicUser, verifyPassword, AuthUser } from "./auth";
 
 initializeDatabase();
 const app = express();
@@ -51,25 +52,78 @@ function getSlaStatusCounts(): { ok: number; at_risk: number; breached: number }
 }
 
 app.get("/api/health", (_req, res) => res.json({ status: "ok" }));
+
+function requireManager(req: Request, res: Response): boolean {
+  if (req.user?.role === "escalation_manager") return true;
+  res.status(403).json({ error: "This action is available to escalation managers only" });
+  return false;
+}
+
+function requireTicketAccess(req: Request, res: Response, ticketId: number): boolean {
+  if (req.user?.role === "escalation_manager") return true;
+  const ticket = db.prepare("SELECT assigned_agent_id FROM tickets WHERE id = ?").get(ticketId) as { assigned_agent_id: number | null } | undefined;
+  if (!ticket) {
+    res.status(404).json({ error: "Ticket not found" });
+    return false;
+  }
+  if (ticket.assigned_agent_id !== req.user?.id) {
+    res.status(403).json({ error: "Agents can only modify tickets assigned to them" });
+    return false;
+  }
+  return true;
+}
+
+function issueUserToken(user: AuthUser): { token: string; user: AuthUser } {
+  return { token: issueToken(user), user };
+}
+
+app.post("/api/auth/login", (req, res) => {
+  const email = typeof req.body?.email === "string" ? req.body.email : "";
+  const password = typeof req.body?.password === "string" ? req.body.password : "";
+  const record = findUserByEmail(email);
+  if (!record || !verifyPassword(password, record.password_hash)) return res.status(401).json({ error: "Invalid email or password" });
+  return res.json(issueUserToken(publicUser(record)));
+});
+
+app.post("/api/auth/demo-login", (req, res) => {
+  if (process.env.NODE_ENV === "production") return res.status(403).json({ error: "Demo login is disabled in production" });
+  const agentId = Number(req.body?.agent_id);
+  const record = db.prepare("SELECT id, name, email, role, region FROM agents WHERE id = ?").get(agentId) as AuthUser | undefined;
+  if (!record) return res.status(401).json({ error: "Demo user not found" });
+  return res.json(issueUserToken(publicUser(record)));
+});
+
+app.use("/api", authenticate);
+
+app.get("/api/auth/me", (req, res) => res.json({ user: req.user }));
 app.get("/api/agencies", (_req, res) => res.json(db.prepare("SELECT * FROM agencies ORDER BY name").all()));
 app.get("/api/agencies/:id/bookings", (req, res) => {
   const agency = db.prepare("SELECT id FROM agencies WHERE id = ?").get(Number(req.params.id));
   if (!agency) return res.status(404).json({ error: "Agency not found" });
   return res.json(db.prepare("SELECT * FROM bookings WHERE agency_id = ? ORDER BY check_in_date").all(Number(req.params.id)));
 });
-app.get("/api/agents", (_req, res) => res.json(db.prepare("SELECT * FROM agents ORDER BY name").all()));
+app.get("/api/agents", (_req, res) => res.json(db.prepare("SELECT id, name, role, region, shift_start, shift_end, online FROM agents ORDER BY name").all()));
 app.get("/api/insights", async (req, res) => {
+  if (!requireManager(req, res)) return;
   try {
     return res.json(await getInsights(req.query.refresh === "1"));
   } catch (error) {
     return res.status(500).json({ error: error instanceof Error ? error.message : "Unable to build insights" });
   }
 });
-app.get("/api/export/tickets.csv", (req, res) => streamTicketCsv(db, res, getExportFilters(req.query as Record<string, unknown>)));
-app.get("/api/export/stats", (req, res) => res.json({ total_rows: getExportStats(db, getExportFilters(req.query as Record<string, unknown>)) }));
-app.get("/api/tickets", (_req, res) => {
+app.get("/api/export/tickets.csv", (req, res) => {
+  if (!requireManager(req, res)) return;
+  return streamTicketCsv(db, res, getExportFilters(req.query as Record<string, unknown>));
+});
+app.get("/api/export/stats", (req, res) => {
+  if (!requireManager(req, res)) return;
+  return res.json({ total_rows: getExportStats(db, getExportFilters(req.query as Record<string, unknown>)) });
+});
+app.get("/api/tickets", (req, res) => {
   const now = new Date();
-  const tickets = db.prepare(ticketSelect).all().map((row) => decorateTicket(row as Record<string, unknown>, now));
+  const mine = req.query.mine === "1";
+  const where = mine ? " WHERE t.assigned_agent_id = ?" : "";
+  const tickets = db.prepare(`${ticketSelect}${where}`).all(...(mine ? [req.user!.id] : [])).map((row) => decorateTicket(row as Record<string, unknown>, now));
   tickets.sort((left, right) => {
     if (left.status === "resolved") return right.status === "resolved" ? 0 : 1;
     if (right.status === "resolved") return -1;
@@ -147,8 +201,9 @@ app.get("/api/cases", (_req, res) => {
 app.patch("/api/tickets/:id", (req, res) => {
   const status = req.body?.status;
   if (!["open", "pending", "resolved"].includes(status)) return res.status(400).json({ error: "Status must be open, pending, or resolved" });
+  if (!requireTicketAccess(req, res, Number(req.params.id))) return;
   try {
-    updateTicketStatus(Number(req.params.id), status);
+    updateTicketStatus(Number(req.params.id), status, req.user!.name);
     return res.json(getTicket(Number(req.params.id)));
   } catch (error) {
     return res.status(404).json({ error: error instanceof Error ? error.message : "Ticket not found" });
@@ -158,8 +213,9 @@ app.patch("/api/tickets/:id", (req, res) => {
 app.post("/api/tickets/:id/transfer", (req, res) => {
   const agentId = req.body?.agent_id;
   if (!Number.isInteger(agentId)) return res.status(400).json({ error: "agent_id is required" });
+  if (!requireTicketAccess(req, res, Number(req.params.id))) return;
   try {
-    const result = transferTicket(Number(req.params.id), agentId, typeof req.body?.note === "string" ? req.body.note : undefined);
+    const result = transferTicket(Number(req.params.id), agentId, typeof req.body?.note === "string" ? req.body.note : undefined, req.user!.name);
     return res.json({ ticket: getTicket(Number(req.params.id)), ...result });
   } catch (error) {
     const message = error instanceof Error ? error.message : "Unable to transfer ticket";
@@ -177,7 +233,7 @@ app.post("/api/tickets/:id/side-conversations", (req, res) => {
     return res.status(400).json({ error: "subject, recipients and body are required; recipient roles must be valid" });
   }
   try {
-    const id = createSideConversation(Number(req.params.id), subject, recipients as Recipient[], body);
+    const id = createSideConversation(Number(req.params.id), subject, recipients as Recipient[], body, req.user!.name);
     return res.status(201).json({ id });
   } catch (error) {
     return res.status(404).json({ error: error instanceof Error ? error.message : "Ticket not found" });
@@ -185,12 +241,12 @@ app.post("/api/tickets/:id/side-conversations", (req, res) => {
 });
 
 app.post("/api/side-conversations/:id/messages", (req, res) => {
-  const { sender, body } = req.body as { sender?: unknown; body?: unknown };
-  if (typeof sender !== "string" || !sender.trim() || typeof body !== "string" || !body.trim()) return res.status(400).json({ error: "sender and body are required" });
+  const { body } = req.body as { body?: unknown };
+  if (typeof body !== "string" || !body.trim()) return res.status(400).json({ error: "body is required" });
   const conversation = db.prepare("SELECT id FROM side_conversations WHERE id = ?").get(Number(req.params.id));
   if (!conversation) return res.status(404).json({ error: "Side conversation not found" });
   const result = db.prepare("INSERT INTO side_messages (side_conversation_id, sender, body, created_at) VALUES (?, ?, ?, ?)")
-    .run(Number(req.params.id), sender.trim(), body.trim(), new Date().toISOString());
+    .run(Number(req.params.id), req.user!.name, body.trim(), new Date().toISOString());
   return res.status(201).json(db.prepare("SELECT * FROM side_messages WHERE id = ?").get(Number(result.lastInsertRowid)));
 });
 
@@ -240,4 +296,8 @@ const escalationJob = setInterval(() => {
 escalationJob.unref();
 
 const port = Number(process.env.PORT ?? 3000);
-app.listen(port, () => console.log(`OpsDesk API listening on http://localhost:${port}`));
+if (process.env.NODE_ENV !== "test") {
+  app.listen(port, () => console.log(`OpsDesk API listening on http://localhost:${port}`));
+}
+
+export { app };
