@@ -86,3 +86,31 @@ test("agents are blocked from insights and CSV export", async () => {
   assert.equal((await request("/api/insights", { headers })).status, 403);
   assert.equal((await request("/api/export/tickets.csv", { headers })).status, 403);
 });
+
+test("team management validates duplicates and prevents manager self-deactivation", async () => {
+  const managerToken = await login("priya.shah@opsdesk.demo");
+  const headers = { authorization: `Bearer ${managerToken}`, "content-type": "application/json" };
+  const duplicate = await request("/api/team", {
+    method: "POST",
+    headers,
+    body: JSON.stringify({ name: "Duplicate", email: "aarav.mehta@opsdesk.demo", role: "agent", region: "India", shift_start: "09:00", shift_end: "18:00", password: "password123" })
+  });
+  assert.equal(duplicate.status, 409);
+  const self = await request("/api/team/9", { method: "PATCH", headers, body: JSON.stringify({ active: false }) });
+  assert.equal(self.status, 400);
+});
+
+test("deactivated users cannot log in", async () => {
+  const managerToken = await login("priya.shah@opsdesk.demo");
+  const headers = { authorization: `Bearer ${managerToken}`, "content-type": "application/json" };
+  const update = await request("/api/team/1", { method: "PATCH", headers, body: JSON.stringify({ active: false }) });
+  assert.equal(update.status, 200);
+  const blocked = await request("/api/auth/login", {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ email: "aarav.mehta@opsdesk.demo", password: "demo123" })
+  });
+  assert.equal(blocked.status, 401);
+  assert.equal(blocked.body.error, "Account is deactivated");
+  await request("/api/team/1", { method: "PATCH", headers, body: JSON.stringify({ active: true }) });
+});

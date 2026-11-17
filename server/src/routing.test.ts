@@ -13,6 +13,14 @@ test("prefers same-region agents on shift", () => {
   assert.match(result.reason, /same region/);
 });
 
+test("never routes to an inactive agent", () => {
+  const result = routeTicket({ priority: "low" }, { region: "India" }, [
+    { ...baseAgent, id: 1, active: 0 },
+    { ...baseAgent, id: 2, active: 1, region: "Europe" }
+  ], new Map(), "2026-01-01T10:00:00.000Z");
+  assert.equal(result.agent_id, 2);
+});
+
 test("handles shifts that cross midnight", () => {
   const result = routeTicket({ priority: "low" }, { region: "India" }, [baseAgent], new Map(), "2026-01-01T20:30:00.000Z");
   assert.match(result.reason, /on shift/);

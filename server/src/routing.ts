@@ -16,6 +16,7 @@ export interface RoutableAgent {
   shift_start: string;
   shift_end: string;
   online: boolean | number;
+  active?: boolean | number;
 }
 
 export interface RoutingResult {
@@ -62,7 +63,7 @@ export function isAgentOnShift(agent: RoutableAgent, now: string | Date): boolea
 }
 
 export function routeTicket(ticket: RoutableTicket, agency: RoutableAgency, agents: RoutableAgent[], openCountByAgent: Map<number, number>, now: string | Date): RoutingResult {
-  const onlineAgents = agents.filter((agent) => agent.role === "agent" && isOnline(agent));
+  const onlineAgents = agents.filter((agent) => agent.role === "agent" && (agent.active === undefined || agent.active === true || agent.active === 1) && isOnline(agent));
   if (onlineAgents.length === 0) return { agent_id: null, reason: "No online agent is available" };
 
   const onShift = onlineAgents.filter((agent) => isAgentOnShift(agent, now));

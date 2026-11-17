@@ -9,7 +9,7 @@ import { slaWindowMinutes, SlaPriority } from "./sla";
 import { createSideConversation, Recipient, recipientRoles, transferTicket, updateTicketStatus } from "./actions";
 import { getExportFilters, getExportStats, streamTicketCsv } from "./export";
 import { getInsights } from "./insights";
-import { authenticate, findUserByEmail, issueToken, publicUser, verifyPassword, AuthUser } from "./auth";
+import { authenticate, findUserByEmail, hashPassword, issueToken, publicUser, verifyPassword, AuthUser, AgentRole } from "./auth";
 
 initializeDatabase();
 const app = express();
@@ -77,20 +77,46 @@ function issueUserToken(user: AuthUser): { token: string; user: AuthUser } {
   return { token: issueToken(user), user };
 }
 
+const teamRegions = new Set(["India", "Middle East", "Europe", "SE Asia"]);
+const timePattern = /^([01]\d|2[0-3]):[0-5]\d$/;
+const emailPattern = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+function validateTeamFields(body: Record<string, unknown>, requirePassword: boolean): string | null {
+  for (const field of ["name", "email", "role", "region", "shift_start", "shift_end"]) {
+    if (typeof body[field] !== "string" || !String(body[field]).trim()) return `${field} is required`;
+  }
+  if (!emailPattern.test(String(body.email))) return "A valid email is required";
+  if (!["agent", "escalation_manager"].includes(String(body.role))) return "Role must be agent or escalation_manager";
+  if (!teamRegions.has(String(body.region))) return "Region is invalid";
+  if (!timePattern.test(String(body.shift_start)) || !timePattern.test(String(body.shift_end))) return "Shift times must use HH:MM";
+  if (requirePassword && (typeof body.password !== "string" || body.password.length < 8)) return "Password must be at least 8 characters";
+  if (!requirePassword && body.password !== undefined && (typeof body.password !== "string" || body.password.length < 8)) return "Password must be at least 8 characters";
+  return null;
+}
+function audit(actorId: number, action: string, targetId: number | null, detail: string): void {
+  db.prepare("INSERT INTO audit_log (actor_id, action, target_id, detail, created_at) VALUES (?, ?, ?, ?, ?)")
+    .run(actorId, action, targetId, detail, new Date().toISOString());
+}
+
 app.post("/api/auth/login", (req, res) => {
   const email = typeof req.body?.email === "string" ? req.body.email : "";
   const password = typeof req.body?.password === "string" ? req.body.password : "";
   const record = findUserByEmail(email);
-  if (!record || !verifyPassword(password, record.password_hash)) return res.status(401).json({ error: "Invalid email or password" });
+  if (!record) return res.status(401).json({ error: "Invalid email or password" });
+  if (!record.active) return res.status(401).json({ error: "Account is deactivated" });
+  if (!verifyPassword(password, record.password_hash)) return res.status(401).json({ error: "Invalid email or password" });
   return res.json(issueUserToken(publicUser(record)));
 });
 
 app.post("/api/auth/demo-login", (req, res) => {
   if (process.env.NODE_ENV === "production") return res.status(403).json({ error: "Demo login is disabled in production" });
   const agentId = Number(req.body?.agent_id);
-  const record = db.prepare("SELECT id, name, email, role, region FROM agents WHERE id = ?").get(agentId) as AuthUser | undefined;
+  const record = db.prepare("SELECT id, name, email, role, region, active FROM agents WHERE id = ?").get(agentId) as (AuthUser & { active: number }) | undefined;
   if (!record) return res.status(401).json({ error: "Demo user not found" });
+  if (!record.active) return res.status(401).json({ error: "Account is deactivated" });
   return res.json(issueUserToken(publicUser(record)));
+});
+app.get("/api/auth/demo-users", (_req, res) => {
+  return res.json(db.prepare("SELECT id, name, role, region FROM agents WHERE active = 1 ORDER BY role DESC, name").all());
 });
 
 app.use("/api", authenticate);
@@ -102,7 +128,58 @@ app.get("/api/agencies/:id/bookings", (req, res) => {
   if (!agency) return res.status(404).json({ error: "Agency not found" });
   return res.json(db.prepare("SELECT * FROM bookings WHERE agency_id = ? ORDER BY check_in_date").all(Number(req.params.id)));
 });
-app.get("/api/agents", (_req, res) => res.json(db.prepare("SELECT id, name, role, region, shift_start, shift_end, online FROM agents ORDER BY name").all()));
+app.get("/api/agents", (_req, res) => res.json(db.prepare("SELECT id, name, role, region, shift_start, shift_end, online FROM agents WHERE active = 1 ORDER BY name").all()));
+app.get("/api/team", (req, res) => {
+  if (!requireManager(req, res)) return;
+  return res.json(db.prepare(`
+    SELECT ag.id, ag.name, ag.email, ag.role, ag.region, ag.shift_start, ag.shift_end, ag.online, ag.active,
+           (SELECT COUNT(*) FROM tickets t WHERE t.assigned_agent_id = ag.id AND t.status = 'open') AS open_ticket_count
+    FROM agents ag ORDER BY ag.name
+  `).all());
+});
+app.get("/api/team/audit", (req, res) => {
+  if (!requireManager(req, res)) return;
+  return res.json(db.prepare(`
+    SELECT al.id, al.action, al.target_id, al.detail, al.created_at, actor.name AS actor_name
+    FROM audit_log al JOIN agents actor ON actor.id = al.actor_id
+    ORDER BY al.created_at DESC, al.id DESC LIMIT 10
+  `).all());
+});
+app.post("/api/team", (req, res) => {
+  if (!requireManager(req, res)) return;
+  const body = (req.body ?? {}) as Record<string, unknown>;
+  const validation = validateTeamFields(body, true);
+  if (validation) return res.status(400).json({ error: validation });
+  const email = String(body.email).trim().toLowerCase();
+  if (db.prepare("SELECT id FROM agents WHERE lower(email) = ?").get(email)) return res.status(409).json({ error: "A user with that email already exists" });
+  const result = db.prepare(`
+    INSERT INTO agents (name, email, role, region, shift_start, shift_end, online, active, password_hash)
+    VALUES (?, ?, ?, ?, ?, ?, 0, 1, ?)
+  `).run(String(body.name).trim(), email, String(body.role) as AgentRole, String(body.region), String(body.shift_start), String(body.shift_end), hashPassword(String(body.password)));
+  const id = Number(result.lastInsertRowid);
+  audit(req.user!.id, "team_member_created", id, `Created ${String(body.role)} ${String(body.name).trim()} (${email})`);
+  return res.status(201).json({ id, name: String(body.name).trim(), email, password: String(body.password) });
+});
+app.patch("/api/team/:id", (req, res) => {
+  if (!requireManager(req, res)) return;
+  const id = Number(req.params.id);
+  const current = db.prepare("SELECT * FROM agents WHERE id = ?").get(id) as (AuthUser & { active: number; shift_start: string; shift_end: string; online: number; password_hash: string | null }) | undefined;
+  if (!current) return res.status(404).json({ error: "Team member not found" });
+  const body = (req.body ?? {}) as Record<string, unknown>;
+  if (id === req.user!.id && body.active === false) return res.status(400).json({ error: "You cannot deactivate your own account" });
+  if (id === req.user!.id && body.role !== undefined && body.role !== current.role) return res.status(400).json({ error: "You cannot change your own role" });
+  const merged = { name: body.name ?? current.name, email: current.email, role: body.role ?? current.role, region: body.region ?? current.region, shift_start: body.shift_start ?? current.shift_start, shift_end: body.shift_end ?? current.shift_end, password: body.password };
+  const validation = validateTeamFields(merged, false);
+  if (validation) return res.status(400).json({ error: validation });
+  if (body.email !== undefined && String(body.email).toLowerCase() !== String(current.email).toLowerCase()) return res.status(400).json({ error: "Email cannot be changed here" });
+  const passwordHash = body.password === undefined ? current.password_hash : hashPassword(String(body.password));
+  db.prepare(`
+    UPDATE agents SET name = ?, role = ?, region = ?, shift_start = ?, shift_end = ?, online = ?, active = ?, password_hash = ?
+    WHERE id = ?
+  `).run(String(merged.name).trim(), String(merged.role), String(merged.region), String(merged.shift_start), String(merged.shift_end), body.online === undefined ? current.online : (body.online ? 1 : 0), body.active === undefined ? current.active : (body.active ? 1 : 0), passwordHash, id);
+  audit(req.user!.id, "team_member_updated", id, `Updated team member ${String(merged.name).trim()}`);
+  return res.json(db.prepare("SELECT id, name, email, role, region, shift_start, shift_end, online, active FROM agents WHERE id = ?").get(id));
+});
 app.get("/api/insights", async (req, res) => {
   if (!requireManager(req, res)) return;
   try {

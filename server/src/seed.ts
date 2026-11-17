@@ -32,6 +32,7 @@ export function seedDatabase(seedNow = new Date()): SeedResult {
   initializeDatabase();
   db.exec(`
     DELETE FROM ticket_events;
+    DELETE FROM audit_log;
     DELETE FROM side_messages;
     DELETE FROM side_conversations;
     DELETE FROM messages;
@@ -59,7 +60,7 @@ export function seedDatabase(seedNow = new Date()): SeedResult {
     ["Maya Singh", "maya.singh@opsdesk.demo", "agent", "India", "16:00", "01:00", 1], ["Kenji Watanabe", "kenji.watanabe@opsdesk.demo", "agent", "SE Asia", "06:00", "15:00", 0],
     ["Priya Shah", "priya.shah@opsdesk.demo", "escalation_manager", "India", "09:00", "18:00", 1], ["Daniel Cohen", "daniel.cohen@opsdesk.demo", "escalation_manager", "Middle East", "10:00", "19:00", 1]
   ];
-  const insertAgent = db.prepare("INSERT INTO agents (name, email, role, region, shift_start, shift_end, online, password_hash) VALUES (?, ?, ?, ?, ?, ?, ?, ?)");
+  const insertAgent = db.prepare("INSERT INTO agents (name, email, role, region, shift_start, shift_end, online, active, password_hash) VALUES (?, ?, ?, ?, ?, ?, ?, 1, ?)");
   for (const agent of agents) insertAgent.run(...agent.slice(0, 7), hashPassword("demo123"));
 
   const bookingRefs: string[] = [];

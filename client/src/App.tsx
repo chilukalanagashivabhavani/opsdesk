@@ -1,4 +1,4 @@
-import { BarChart3, BriefcaseBusiness, ChevronLeft, ChevronRight, LayoutDashboard, Menu, Plus, RotateCcw, Sparkles, Ticket as TicketIcon, X } from "lucide-react";
+import { BarChart3, BriefcaseBusiness, ChevronLeft, ChevronRight, LayoutDashboard, Menu, Plus, RotateCcw, Sparkles, Ticket as TicketIcon, Users, X } from "lucide-react";
 import { useEffect, useState } from "react";
 import { Link, NavLink, Outlet, useNavigate } from "react-router-dom";
 import { api } from "./api";
@@ -29,7 +29,7 @@ export function Layout() {
     window.addEventListener("opsdesk:forbidden", showForbidden);
     return () => window.removeEventListener("opsdesk:forbidden", showForbidden);
   }, []);
-  const visibleNavItems = navItems.filter((item) => item.path !== "/insights" || user?.role === "escalation_manager");
+  const visibleNavItems = [...navItems, { label: "Team", path: "/team", icon: Users }].filter((item) => (item.path !== "/insights" && item.path !== "/team") || user?.role === "escalation_manager");
   const runDemo = async (action: () => Promise<void>, fallback: string) => {
     setBusy(true); setDemoError(null);
     try { await action(); } catch (error) { setDemoError(error instanceof Error ? error.message : fallback); } finally { setBusy(false); }

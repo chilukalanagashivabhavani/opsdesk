@@ -23,6 +23,7 @@ export function initializeDatabase(): void {
       role TEXT NOT NULL CHECK (role IN ('agent', 'escalation_manager')),
       email TEXT,
       password_hash TEXT,
+      active INTEGER NOT NULL DEFAULT 1,
       region TEXT NOT NULL,
       shift_start TEXT NOT NULL,
       shift_end TEXT NOT NULL,
@@ -79,9 +80,35 @@ export function initializeDatabase(): void {
       detail TEXT NOT NULL,
       created_at TEXT NOT NULL
     );
+    CREATE TABLE IF NOT EXISTS audit_log (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      actor_id INTEGER NOT NULL,
+      action TEXT NOT NULL,
+      target_id INTEGER,
+      detail TEXT NOT NULL,
+      created_at TEXT NOT NULL
+    );
   `);
   const columns = db.prepare("PRAGMA table_info(agents)").all() as Array<{ name: string }>;
   if (!columns.some((column) => column.name === "email")) db.exec("ALTER TABLE agents ADD COLUMN email TEXT");
   if (!columns.some((column) => column.name === "password_hash")) db.exec("ALTER TABLE agents ADD COLUMN password_hash TEXT");
+  if (!columns.some((column) => column.name === "active")) db.exec("ALTER TABLE agents ADD COLUMN active INTEGER NOT NULL DEFAULT 1");
+  const auditForeignKeys = db.prepare("PRAGMA foreign_key_list(audit_log)").all() as unknown[];
+  if (auditForeignKeys.length > 0) {
+    db.exec(`
+      ALTER TABLE audit_log RENAME TO audit_log_legacy;
+      CREATE TABLE audit_log (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        actor_id INTEGER NOT NULL,
+        action TEXT NOT NULL,
+        target_id INTEGER,
+        detail TEXT NOT NULL,
+        created_at TEXT NOT NULL
+      );
+      INSERT INTO audit_log (id, actor_id, action, target_id, detail, created_at)
+        SELECT id, actor_id, action, target_id, detail, created_at FROM audit_log_legacy;
+      DROP TABLE audit_log_legacy;
+    `);
+  }
   db.exec("CREATE UNIQUE INDEX IF NOT EXISTS agents_email_unique ON agents(email)");
 }

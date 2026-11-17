@@ -2,7 +2,7 @@ import { Component, ErrorInfo, ReactNode, StrictMode } from "react";
 import { createRoot } from "react-dom/client";
 import { BrowserRouter, Navigate, Route, Routes } from "react-router-dom";
 import { Layout } from "./App";
-import { CasesPage, Dashboard, InsightsPage, LoginPage, NewTicketPage, TicketDetailPage, TicketsPage } from "./pages";
+import { CasesPage, Dashboard, InsightsPage, LoginPage, NewTicketPage, TeamPage, TicketDetailPage, TicketsPage } from "./pages";
 import { AuthProvider, useAuth } from "./auth";
 import { LoadingState } from "./components";
 import "./index.css";
@@ -49,6 +49,7 @@ createRoot(document.getElementById("root")!).render(
               <Route path="/tickets/:id" element={<TicketDetailPage />} />
               <Route path="/cases" element={<CasesPage />} />
               <Route path="/insights" element={<InsightsPage />} />
+              <Route path="/team" element={<TeamPage />} />
             </Route>
           </Routes>
         </BrowserRouter>

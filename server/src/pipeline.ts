@@ -22,8 +22,8 @@ export function processTicket(ticketId: number, now: string | Date, linkCase = f
   const sla = computeSla(ticket.check_in_date ?? fallbackDate, ticket.lcd_date ?? fallbackDate, now);
   db.prepare("UPDATE tickets SET priority = ?, sla_due_at = ? WHERE id = ?").run(sla.priority, sla.sla_due_at, ticketId);
 
-  const agents = db.prepare("SELECT id, name, role, region, shift_start, shift_end, online FROM agents").all() as Array<{
-    id: number; name: string; role: "agent" | "escalation_manager"; region: string; shift_start: string; shift_end: string; online: number;
+  const agents = db.prepare("SELECT id, name, role, region, shift_start, shift_end, online, active FROM agents WHERE active = 1").all() as Array<{
+    id: number; name: string; role: "agent" | "escalation_manager"; region: string; shift_start: string; shift_end: string; online: number; active: number;
   }>;
   const openCounts = new Map<number, number>();
   const counts = db.prepare("SELECT assigned_agent_id, COUNT(*) AS count FROM tickets WHERE status = 'open' AND assigned_agent_id IS NOT NULL GROUP BY assigned_agent_id").all() as Array<{ assigned_agent_id: number; count: number }>;

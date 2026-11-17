@@ -16,6 +16,21 @@ export interface Agent {
   shift_start: string;
   shift_end: string;
   online: number;
+  active?: number;
+}
+
+export interface TeamMember extends Agent {
+  email: string;
+  open_ticket_count: number;
+}
+
+export interface AuditEntry {
+  id: number;
+  action: string;
+  target_id: number | null;
+  detail: string;
+  created_at: string;
+  actor_name: string;
 }
 
 export interface Booking {

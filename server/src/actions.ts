@@ -24,8 +24,9 @@ export function updateTicketStatus(ticketId: number, status: "open" | "pending" 
 
 export function transferTicket(ticketId: number, agentId: number, note?: string, actorName = "OpsDesk"): { sideConversationCount: number; recipientCount: number } {
   getTicketOrThrow(ticketId);
-  const target = db.prepare("SELECT id, name, role FROM agents WHERE id = ?").get(agentId) as { id: number; name: string; role: string } | undefined;
+  const target = db.prepare("SELECT id, name, role, active FROM agents WHERE id = ?").get(agentId) as { id: number; name: string; role: string; active: number } | undefined;
   if (!target || !["agent", "escalation_manager"].includes(target.role)) throw new Error("Target agent must be an agent or escalation manager");
+  if (!target.active) throw new Error("Cannot transfer to an inactive user");
   const current = db.prepare("SELECT assigned_agent_id FROM tickets WHERE id = ?").get(ticketId) as { assigned_agent_id: number | null };
   const previous = current.assigned_agent_id
     ? (db.prepare("SELECT name FROM agents WHERE id = ?").get(current.assigned_agent_id) as { name: string } | undefined)?.name ?? "Unassigned"

@@ -1,4 +1,4 @@
-import { Agency, Agent, Booking, CaseDetail, CaseSummary, InsightsResponse, Recipient, RecipientPreset, SideConversation, SideMessage, Ticket, TicketEvent } from "./types";
+import { Agency, Agent, AuditEntry, Booking, CaseDetail, CaseSummary, InsightsResponse, Recipient, RecipientPreset, SideConversation, SideMessage, TeamMember, Ticket, TicketEvent } from "./types";
 
 async function request<T>(path: string, options?: RequestInit): Promise<T> {
   const token = localStorage.getItem("opsdesk_token");
@@ -19,10 +19,15 @@ async function request<T>(path: string, options?: RequestInit): Promise<T> {
 export const api = {
   login: (email: string, password: string) => request<{ token: string; user: import("./auth").AuthUser }>("/api/auth/login", { method: "POST", body: JSON.stringify({ email, password }) }),
   demoLogin: (agent_id: number) => request<{ token: string; user: import("./auth").AuthUser }>("/api/auth/demo-login", { method: "POST", body: JSON.stringify({ agent_id }) }),
+  getDemoUsers: () => request<Array<Pick<import("./auth").AuthUser, "id" | "name" | "role" | "region">>>("/api/auth/demo-users"),
   getMe: () => request<{ user: import("./auth").AuthUser }>("/api/auth/me"),
   getAgencies: () => request<Agency[]>("/api/agencies"),
   getAgencyBookings: (agencyId: number) => request<Booking[]>(`/api/agencies/${agencyId}/bookings`),
   getAgents: () => request<Agent[]>("/api/agents"),
+  getTeam: () => request<TeamMember[]>("/api/team"),
+  getTeamAudit: () => request<AuditEntry[]>("/api/team/audit"),
+  createTeamMember: (payload: Record<string, unknown>) => request<{ id: number; email: string; password: string }>("/api/team", { method: "POST", body: JSON.stringify(payload) }),
+  updateTeamMember: (id: number, payload: Record<string, unknown>) => request<TeamMember>(`/api/team/${id}`, { method: "PATCH", body: JSON.stringify(payload) }),
   getTickets: (mine = false) => request<Ticket[]>(`/api/tickets${mine ? "?mine=1" : ""}`),
   getTicket: (id: number) => request<Ticket>(`/api/tickets/${id}`),
   getTicketCase: (id: number) => request<CaseDetail>(`/api/tickets/${id}/case`),

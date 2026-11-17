@@ -46,9 +46,13 @@ export function authenticate(req: Request, res: Response, next: NextFunction): v
   try {
     const payload = jwt.verify(token, jwtSecret) as JwtPayload;
     const id = Number(payload.sub);
-    const row = db.prepare("SELECT id, name, email, role, region FROM agents WHERE id = ?").get(id) as AuthUser | undefined;
+    const row = db.prepare("SELECT id, name, email, role, region, active FROM agents WHERE id = ?").get(id) as (AuthUser & { active: number }) | undefined;
     if (!row) {
       res.status(401).json({ error: "Invalid authentication token" });
+      return;
+    }
+    if (!row.active) {
+      res.status(401).json({ error: "Account is deactivated" });
       return;
     }
     req.user = publicUser(row);
@@ -58,9 +62,9 @@ export function authenticate(req: Request, res: Response, next: NextFunction): v
   }
 }
 
-export function findUserByEmail(email: string): { id: number; name: string; email: string; role: AgentRole; region: string; password_hash: string } | undefined {
-  return db.prepare("SELECT id, name, email, role, region, password_hash FROM agents WHERE lower(email) = lower(?)").get(email.trim()) as {
-    id: number; name: string; email: string; role: AgentRole; region: string; password_hash: string;
+export function findUserByEmail(email: string): { id: number; name: string; email: string; role: AgentRole; region: string; password_hash: string; active: number } | undefined {
+  return db.prepare("SELECT id, name, email, role, region, password_hash, active FROM agents WHERE lower(email) = lower(?)").get(email.trim()) as {
+    id: number; name: string; email: string; role: AgentRole; region: string; password_hash: string; active: number;
   } | undefined;
 }
 
